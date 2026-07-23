@@ -53,29 +53,55 @@
       #touch-controls { display: none; }
       body.touch #touch-controls { display: block; }
       body.touch #game { cursor: default; }
-      body.touch #library { bottom: calc(120px + var(--safe-b)); }
+      body.touch #library { bottom: calc(180px + var(--safe-b)); }
 
       .tbtn {
         position: fixed;
-        width: 64px; height: 64px; border-radius: 50%;
-        background: rgba(255, 255, 255, 0.7);
+        width: 76px; height: 76px; border-radius: 50%;
+        background: rgba(255, 255, 255, 0.72);
         border: 1.5px solid #2b2b2b;
-        color: #2b2b2b; font-size: 26px; font-family: Georgia, serif;
+        color: #2b2b2b; font-size: 14px; letter-spacing: 0.08em; font-family: Georgia, serif;
         display: flex; align-items: center; justify-content: center;
-        box-shadow: 2px 2px 0 rgba(43, 43, 43, 0.6);
+        box-shadow: 2px 2px 0 rgba(43, 43, 43, 0.5);
         touch-action: none; user-select: none;
         -webkit-tap-highlight-color: transparent;
         transition: transform 60ms ease, background 60ms ease;
+        z-index: 6;
       }
       .tbtn.active { background: rgba(43, 43, 43, 0.85); color: #f4efe6; transform: scale(0.94); }
 
-      #walk-left  { left: calc(20px + var(--safe-l));  bottom: calc(40px + var(--safe-b)); }
-      #walk-right { left: calc(100px + var(--safe-l)); bottom: calc(40px + var(--safe-b)); }
-      #cam-btn    { right: calc(20px + var(--safe-r)); bottom: calc(40px + var(--safe-b));
-                    width: 76px; height: 76px; font-size: 30px; }
-      #shutter-btn { right: calc(110px + var(--safe-r)); bottom: calc(50px + var(--safe-b));
-                     width: 56px; height: 56px; font-size: 20px; display: none; }
+      #cam-btn { right: calc(24px + var(--safe-r)); bottom: calc(48px + var(--safe-b)); }
+      #cam-btn svg { width: 32px; height: 32px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linejoin: round; }
+      #shutter-btn {
+        right: calc(120px + var(--safe-r)); bottom: calc(60px + var(--safe-b));
+        width: 60px; height: 60px; font-size: 13px; display: none;
+      }
       body.touch.cam-raised #shutter-btn { display: flex; }
+
+      /* Virtual joystick — Roblox-style */
+      #joystick {
+        position: fixed;
+        left: calc(40px + var(--safe-l));
+        bottom: calc(48px + var(--safe-b));
+        width: 140px; height: 140px;
+        z-index: 6;
+        touch-action: none;
+      }
+      #joystick .base {
+        position: absolute; inset: 0;
+        border-radius: 50%;
+        border: 1.5px solid rgba(43, 43, 43, 0.7);
+        background: rgba(255, 255, 255, 0.35);
+        box-shadow: 2px 2px 0 rgba(43, 43, 43, 0.35);
+      }
+      #joystick .knob {
+        position: absolute; left: 50%; top: 50%;
+        width: 60px; height: 60px; margin: -30px 0 0 -30px;
+        border-radius: 50%;
+        border: 1.5px solid #2b2b2b;
+        background: rgba(255, 255, 255, 0.85);
+        transition: transform 0s;
+      }
 
       /* Rotate-to-landscape overlay: shows only on touch devices held in portrait */
       #rotate-overlay {
@@ -117,7 +143,7 @@
     <div id="hud">
       <div>
         <div>Smudgeworld</div>
-        <div class="hint" id="hint">A / D or ← → to walk · hold Shift to raise camera · click or Space to snap</div>
+        <div class="hint" id="hint">W A S D to walk · hold Shift to raise camera · click or Space to snap</div>
       </div>
       <div class="right">
         <div id="coin">Coins: 0</div>
@@ -126,9 +152,18 @@
     </div>
     <div id="library"></div>
     <div id="touch-controls">
-      <div class="tbtn" id="walk-left">◀</div>
-      <div class="tbtn" id="walk-right">▶</div>
-      <div class="tbtn" id="cam-btn">📷</div>
+      <div id="joystick">
+        <div class="base"></div>
+        <div class="knob" id="joystick-knob"></div>
+      </div>
+      <div class="tbtn" id="cam-btn" aria-label="Raise camera">
+        <svg viewBox="0 0 32 32" aria-hidden="true">
+          <rect x="3" y="9" width="26" height="18" rx="2"/>
+          <path d="M11 9 L13 5 L19 5 L21 9"/>
+          <circle cx="16" cy="18" r="5"/>
+          <circle cx="16" cy="18" r="2"/>
+        </svg>
+      </div>
       <div class="tbtn" id="shutter-btn">SNAP</div>
     </div>
     <div id="rotate-overlay">

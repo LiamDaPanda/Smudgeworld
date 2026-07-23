@@ -329,13 +329,12 @@ function makeGrassClump(rand: () => number, x: number, z: number): LineSegments 
   return new LineSegments(geo, new LineBasicMaterial({ color: new Color("#3f5232"), transparent: true, opacity: 0.85 }));
 }
 
-// Scattered small pebble dashes across the ground plane.
-function makePebbles(rand: () => number, width: number): LineSegments {
+function makePebbles(rand: () => number, width: number, depth: number): LineSegments {
   const positions: number[] = [];
-  const n = Math.floor(width * 2.5);
+  const n = Math.floor(width * depth * 0.15);
   for (let i = 0; i < n; i++) {
     const x = rand() * width;
-    const z = -6 + rand() * 12;
+    const z = rand() * depth;
     const len = 0.06 + rand() * 0.12;
     const a = rand() * Math.PI * 2;
     positions.push(x - Math.cos(a) * len / 2, 0.006, z - Math.sin(a) * len / 2, x + Math.cos(a) * len / 2, 0.006, z + Math.sin(a) * len / 2);
@@ -345,40 +344,27 @@ function makePebbles(rand: () => number, width: number): LineSegments {
   return new LineSegments(geo, new LineBasicMaterial({ color: INK_SOFT, transparent: true, opacity: 0.55 }));
 }
 
-function makeGroundStrokes(rand: () => number, width: number): LineSegments {
+function makeGroundStrokes(rand: () => number, width: number, depth: number): LineSegments {
   const positions: number[] = [];
-  const strokes = Math.floor(width * 2.2);
+  const strokes = Math.floor(width * depth * 0.12);
   for (let i = 0; i < strokes; i++) {
     const x = rand() * width;
-    const z = -6 + rand() * 12;
+    const z = rand() * depth;
     const len = 0.2 + rand() * 0.6;
-    positions.push(x, 0.005, z, x + len, 0.005, z + (rand() - 0.5) * 0.12);
+    const a = rand() * Math.PI * 2;
+    positions.push(x, 0.005, z, x + Math.cos(a) * len, 0.005, z + Math.sin(a) * len * 0.4);
   }
   const geo = new BufferGeometry();
   geo.setAttribute("position", new Float32BufferAttribute(positions, 3));
   return new LineSegments(geo, new LineBasicMaterial({ color: INK_SOFT, transparent: true, opacity: 0.55 }));
 }
 
-function makePerspectiveLines(worldWidth: number): LineSegments {
-  const positions: number[] = [];
-  const vanishZ = -50;
-  const vanishY = 2.2;
-  const nearZ = 8;
-  const step = 2.5;
-  for (let x = -20; x < worldWidth + 20; x += step) {
-    positions.push(x, 0.01, nearZ, worldWidth / 2, vanishY, vanishZ);
-  }
-  const geo = new BufferGeometry();
-  geo.setAttribute("position", new Float32BufferAttribute(positions, 3));
-  return new LineSegments(geo, new LineBasicMaterial({ color: INK_SOFT, transparent: true, opacity: 0.18 }));
-}
-
-function makeHorizonMarks(rand: () => number, worldWidth: number): LineSegments {
+function makeHorizonMarks(rand: () => number, worldWidth: number, hillZ: number): LineSegments {
   const positions: number[] = [];
   for (let i = 0; i < 24; i++) {
     const x = rand() * worldWidth;
     const y = 4 + rand() * 3;
-    const z = -32 - rand() * 6;
+    const z = hillZ - 2 - rand() * 6;
     positions.push(
       x, y, z, x + 0.6, y + 0.15, z,
       x + 0.6, y + 0.15, z, x + 1.2, y, z
@@ -389,10 +375,11 @@ function makeHorizonMarks(rand: () => number, worldWidth: number): LineSegments 
   return new LineSegments(geo, new LineBasicMaterial({ color: INK_SOFT, transparent: true, opacity: 0.5 }));
 }
 
-// A colored watercolor billboard plane behind a hill's line silhouette so the
-// hill reads as a colored mass instead of just an outline.
-function makeHillWash(worldWidth: number, baseZ: number, height: number, tex: CanvasTexture, tint: Color): Mesh {
-  const geo = new PlaneGeometry(worldWidth + 20, height * 1.6);
+// Distant hills as billboard rings around the walkable area — they always
+// appear on the horizon regardless of which way the player looks.
+function makeHillRing(worldWidth: number, worldDepth: number, radiusOut: number, height: number, tex: CanvasTexture, tint: Color): Mesh {
+  const perimeter = 2 * (worldWidth + worldDepth) + 4 * radiusOut;
+  const geo = new PlaneGeometry(perimeter, height * 1.6);
   const mat = new MeshBasicMaterial({
     map: tex,
     color: tint,
@@ -403,100 +390,142 @@ function makeHillWash(worldWidth: number, baseZ: number, height: number, tex: Ca
     fog: true,
   });
   const mesh = new Mesh(geo, mat);
-  mesh.position.set(worldWidth / 2, height * 0.4, baseZ + 0.1);
-  mesh.renderOrder = -1;
+  // We can't wrap a plane into a ring simply, so put four separate hills
+  // — the caller adds four of these via makeHillWashesAround.
   return mesh;
 }
 
-function makeHillSilhouette(rand: () => number, width: number, baseZ: number, height: number, color: Color): LineSegments {
-  const positions: number[] = [];
-  let prevY = height * 0.6;
-  const step = 0.8;
-  let prevX = -5;
-  for (let x = -5; x <= width + 5; x += step) {
-    const y = height * (0.5 + Math.sin(x * 0.15 + baseZ) * 0.3 + (rand() - 0.5) * 0.15);
-    positions.push(prevX, prevY, baseZ, x, y, baseZ);
-    prevX = x;
-    prevY = y;
+function makeHillWashesAround(worldWidth: number, worldDepth: number, offset: number, height: number, tex: CanvasTexture, tint: Color): Group {
+  const g = new Group();
+  const halfSpan = Math.max(worldWidth, worldDepth) + offset * 2;
+  const specs = [
+    { pos: [worldWidth / 2, height * 0.4, -offset] as [number, number, number], rot: 0 },
+    { pos: [worldWidth / 2, height * 0.4, worldDepth + offset] as [number, number, number], rot: Math.PI },
+    { pos: [-offset, height * 0.4, worldDepth / 2] as [number, number, number], rot: Math.PI / 2 },
+    { pos: [worldWidth + offset, height * 0.4, worldDepth / 2] as [number, number, number], rot: -Math.PI / 2 },
+  ];
+  for (const s of specs) {
+    const geo = new PlaneGeometry(halfSpan, height * 1.6);
+    const mat = new MeshBasicMaterial({
+      map: tex, color: tint,
+      transparent: true, opacity: 0.75, side: DoubleSide, depthWrite: false, fog: true,
+    });
+    const mesh = new Mesh(geo, mat);
+    mesh.position.set(...s.pos);
+    mesh.rotation.y = s.rot;
+    mesh.renderOrder = -1;
+    g.add(mesh);
   }
-  const geo = new BufferGeometry();
-  geo.setAttribute("position", new Float32BufferAttribute(positions, 3));
-  return new LineSegments(geo, new LineBasicMaterial({ color }));
+  return g;
 }
 
-// Cloud splotches high in the "sky" — watercolor sprites drawn as billboards.
-function makeClouds(rand: () => number, worldWidth: number): Group {
+function makeHillSilhouetteAround(rand: () => number, worldWidth: number, worldDepth: number, offset: number, height: number, color: Color): Group {
   const g = new Group();
-  // baseAlpha = 0 → the canvas is transparent outside splotches, so the
-  // plane's rectangular edges disappear and only the blob shape remains.
+  const specs: { start: [number, number]; end: [number, number]; z: number; forward: number }[] = [
+    { start: [-offset, -offset], end: [worldWidth + offset, -offset], z: -offset, forward: 0 },
+    { start: [worldWidth + offset, -offset], end: [worldWidth + offset, worldDepth + offset], z: 0, forward: 0 },
+    { start: [worldWidth + offset, worldDepth + offset], end: [-offset, worldDepth + offset], z: worldDepth + offset, forward: 0 },
+    { start: [-offset, worldDepth + offset], end: [-offset, -offset], z: 0, forward: 0 },
+  ];
+  for (const s of specs) {
+    const positions: number[] = [];
+    const dx = s.end[0] - s.start[0];
+    const dz = s.end[1] - s.start[1];
+    const len = Math.hypot(dx, dz);
+    const steps = Math.max(6, Math.floor(len / 0.8));
+    let prev: [number, number] | null = null;
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      const x = s.start[0] + dx * t;
+      const z = s.start[1] + dz * t;
+      const y = height * (0.5 + Math.sin(t * 6 + s.start[0]) * 0.3 + (rand() - 0.5) * 0.15);
+      if (prev) positions.push(prev[0], prev[1], z, x, y, z);
+      prev = [x, y];
+    }
+    const geo = new BufferGeometry();
+    geo.setAttribute("position", new Float32BufferAttribute(positions, 3));
+    g.add(new LineSegments(geo, new LineBasicMaterial({ color })));
+  }
+  return g;
+}
+
+function makeClouds(rand: () => number, worldWidth: number, worldDepth: number): Group {
+  const g = new Group();
   const cloudTex = makeWatercolorTexture("#c8c9c4", 700, 256, 20, 6, 0, true);
-  for (let i = 0; i < 10; i++) {
+  for (let i = 0; i < 14; i++) {
     const w = 6 + rand() * 5;
     const h = 2 + rand() * 1;
     const mesh = new Mesh(
       new PlaneGeometry(w, h),
       new MeshBasicMaterial({ map: cloudTex, color: new Color("#e0dcc9"), transparent: true, opacity: 0.6, depthWrite: false })
     );
-    mesh.position.set(rand() * worldWidth, 8 + rand() * 3, -20 - rand() * 15);
+    // Place clouds around and above the play area
+    const angle = rand() * Math.PI * 2;
+    const radius = Math.max(worldWidth, worldDepth) * 0.6;
+    mesh.position.set(worldWidth / 2 + Math.cos(angle) * radius, 8 + rand() * 3, worldDepth / 2 + Math.sin(angle) * radius);
     g.add(mesh);
   }
   return g;
 }
 
-export function buildWorld(worldWidth: number): { scene: Scene; worldRoot: Group } {
+export function buildWorld(worldWidth: number, worldDepth: number): { scene: Scene; worldRoot: Group } {
   const scene = new Scene();
   scene.background = PAPER;
-  scene.fog = new Fog(PAPER.getHex(), 22, 62);
+  scene.fog = new Fog(PAPER.getHex(), Math.max(worldWidth, worldDepth) * 0.6, Math.max(worldWidth, worldDepth) * 1.4);
 
   const worldRoot = new Group();
   scene.add(worldRoot);
 
-  // Ground: watercolor texture map so the ground reads as painted paper.
   const ground = new Mesh(
-    new PlaneGeometry(worldWidth + 40, 80, 1, 1),
+    new PlaneGeometry(worldWidth + 60, worldDepth + 60, 1, 1),
     new MeshBasicMaterial({ map: groundTex, color: new Color("#f4efe6") })
   );
   ground.rotation.x = -Math.PI / 2;
-  ground.position.set(worldWidth / 2, 0, 0);
+  ground.position.set(worldWidth / 2, 0, worldDepth / 2);
   worldRoot.add(ground);
 
   const rand = seededRand(42);
 
-  worldRoot.add(makePerspectiveLines(worldWidth));
-  worldRoot.add(makeGroundStrokes(rand, worldWidth));
-  worldRoot.add(makePebbles(rand, worldWidth));
-  worldRoot.add(makeHorizonMarks(rand, worldWidth));
+  worldRoot.add(makeGroundStrokes(rand, worldWidth, worldDepth));
+  worldRoot.add(makePebbles(rand, worldWidth, worldDepth));
 
-  // Distant hills: soft watercolor washes behind ink silhouettes.
-  worldRoot.add(makeHillWash(worldWidth, -30, 8, hillTex[2], new Color("#c3c4cd")));
-  worldRoot.add(makeHillSilhouette(rand, worldWidth, -30, 8, new Color("#a89f8e")));
-  worldRoot.add(makeHillWash(worldWidth, -22, 6, hillTex[1], new Color("#bfc2c5")));
-  worldRoot.add(makeHillSilhouette(rand, worldWidth, -22, 6, new Color("#8f8779")));
-  worldRoot.add(makeHillWash(worldWidth, -14, 4.5, hillTex[0], new Color("#b0b5c6")));
-  worldRoot.add(makeHillSilhouette(rand, worldWidth, -14, 4.5, INK_SOFT));
+  // Hills form a ring around the walkable area on all four sides.
+  worldRoot.add(makeHillWashesAround(worldWidth, worldDepth, 30, 8, hillTex[2], new Color("#c3c4cd")));
+  worldRoot.add(makeHillSilhouetteAround(rand, worldWidth, worldDepth, 30, 8, new Color("#a89f8e")));
+  worldRoot.add(makeHillWashesAround(worldWidth, worldDepth, 22, 6, hillTex[1], new Color("#bfc2c5")));
+  worldRoot.add(makeHillSilhouetteAround(rand, worldWidth, worldDepth, 22, 6, new Color("#8f8779")));
+  worldRoot.add(makeHillWashesAround(worldWidth, worldDepth, 14, 4.5, hillTex[0], new Color("#b0b5c6")));
+  worldRoot.add(makeHillSilhouetteAround(rand, worldWidth, worldDepth, 14, 4.5, INK_SOFT));
 
-  worldRoot.add(makeClouds(rand, worldWidth));
+  worldRoot.add(makeHorizonMarks(rand, worldWidth, -14));
+  worldRoot.add(makeClouds(rand, worldWidth, worldDepth));
 
-  for (let i = 0; i < 45; i++) {
-    const x = 3 + rand() * (worldWidth - 6);
-    const z = -9 + rand() * 8;
+  const clearRadius = 3; // don't spawn things right on the player's start
+  const cx = worldWidth / 2;
+  const cz = worldDepth / 2;
+
+  for (let i = 0; i < 90; i++) {
+    let x = 2 + rand() * (worldWidth - 4);
+    let z = 2 + rand() * (worldDepth - 4);
+    if (Math.hypot(x - cx, z - cz) < clearRadius) continue;
     const tree = makeTree(rand);
     tree.position.set(x, 0, z);
     tree.scale.setScalar(0.85 + rand() * 0.35);
     worldRoot.add(tree);
   }
 
-  for (let i = 0; i < 30; i++) {
+  for (let i = 0; i < 60; i++) {
     const x = rand() * worldWidth;
-    const z = -6 + rand() * 5;
+    const z = rand() * worldDepth;
+    if (Math.hypot(x - cx, z - cz) < clearRadius) continue;
     const bush = makeBush(rand);
     bush.position.set(x, 0, z);
     worldRoot.add(bush);
   }
 
-  for (let i = 0; i < 160; i++) {
+  for (let i = 0; i < 340; i++) {
     const x = rand() * worldWidth;
-    const z = -6 + rand() * 10;
+    const z = rand() * worldDepth;
     worldRoot.add(makeGrassClump(rand, x, z));
   }
 
@@ -504,11 +533,11 @@ export function buildWorld(worldWidth: number): { scene: Scene; worldRoot: Group
     fill: new Color("#f5e3b3"),
     edgeThreshold: 25,
   });
-  sun.position.set(worldWidth / 2, 9, -35);
+  sun.position.set(worldWidth / 2, 10, -35);
   worldRoot.add(sun);
 
-  // Force reference to Vector3 to keep tree-shake happy across future edits
   void new Vector3();
+  void makeHillRing;
 
   return { scene, worldRoot };
 }
