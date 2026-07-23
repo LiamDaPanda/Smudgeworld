@@ -76,6 +76,40 @@
       #shutter-btn { right: calc(110px + var(--safe-r)); bottom: calc(50px + var(--safe-b));
                      width: 56px; height: 56px; font-size: 20px; display: none; }
       body.touch.cam-raised #shutter-btn { display: flex; }
+
+      /* Rotate-to-landscape overlay: shows only on touch devices held in portrait */
+      #rotate-overlay {
+        position: fixed; inset: 0; z-index: 20;
+        background: #f4efe6;
+        display: none;
+        flex-direction: column; align-items: center; justify-content: center;
+        color: #2b2b2b; padding: 24px; text-align: center;
+        font-family: Georgia, serif;
+      }
+      body.touch #rotate-overlay { display: none; }
+      @media (orientation: portrait) {
+        body.touch #rotate-overlay { display: flex; }
+      }
+      #rotate-overlay .phone {
+        width: 90px; height: 150px; border: 2px solid #2b2b2b; border-radius: 14px;
+        position: relative; margin-bottom: 28px;
+        animation: rotate-hint 2.4s ease-in-out infinite;
+        transform-origin: 50% 50%;
+      }
+      #rotate-overlay .phone::before {
+        content: ""; position: absolute; top: 8px; left: 50%; transform: translateX(-50%);
+        width: 30px; height: 3px; background: #2b2b2b; border-radius: 2px;
+      }
+      #rotate-overlay .phone::after {
+        content: ""; position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%);
+        width: 22px; height: 22px; border: 1.5px solid #2b2b2b; border-radius: 50%;
+      }
+      @keyframes rotate-hint {
+        0%, 20% { transform: rotate(0deg); }
+        55%, 100% { transform: rotate(-90deg); }
+      }
+      #rotate-overlay h2 { margin: 0 0 8px; font-weight: normal; font-size: 22px; letter-spacing: 0.03em; }
+      #rotate-overlay p { margin: 0; opacity: 0.65; font-style: italic; font-size: 15px; }
     </style>
   </head>
   <body>
@@ -96,6 +130,11 @@
       <div class="tbtn" id="walk-right">▶</div>
       <div class="tbtn" id="cam-btn">📷</div>
       <div class="tbtn" id="shutter-btn">SNAP</div>
+    </div>
+    <div id="rotate-overlay">
+      <div class="phone"></div>
+      <h2>Turn your phone sideways</h2>
+      <p>Smudgeworld plays in landscape.</p>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
