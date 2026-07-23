@@ -1,3 +1,5 @@
+import type { PerspectiveCamera, Scene, Group, Vector3 } from "three";
+
 export interface InputState {
   left: boolean;
   right: boolean;
@@ -7,53 +9,40 @@ export interface InputState {
   consumeSnap: () => boolean;
 }
 
-export interface World {
-  width: number;
-  groundY: number;
-  strokes: Stroke[];
-  parallax: ParallaxLayer[];
-}
-
-export interface Stroke {
-  points: { x: number; y: number }[];
-  weight: number;
-}
-
-export interface ParallaxLayer {
-  factor: number;
-  strokes: Stroke[];
-  color: string;
-  weight: number;
-}
-
 export interface Player {
-  x: number;
-  y: number;
-  vx: number;
+  root: Group;
+  worldX: number;
   facing: 1 | -1;
   walkPhase: number;
   cameraRaised: boolean;
+  leftLeg: Group;
+  rightLeg: Group;
+  leftArm: Group;
+  rightArm: Group;
+  cameraProp: Group;
 }
 
 export interface Smudge {
   id: string;
   kind: "common" | "timed";
-  x: number;
-  baseY: number;
+  worldPos: Vector3;
   radius: number;
   wobbleSeed: number;
   visible: boolean;
+  sprite: Group;
   timedWindow?: { start: number; end: number };
   name: string;
   set: string;
 }
 
 export interface GameState {
-  world: World;
+  scene: Scene;
+  camera: PerspectiveCamera;
+  worldWidth: number;
+  worldRoot: Group;
   player: Player;
   smudges: Smudge[];
   input: InputState;
-  cameraX: number;
   time: number;
   coins: number;
   snapshotCount: number;

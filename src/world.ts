@@ -1,6 +1,23 @@
-import type { GameState, ParallaxLayer, Stroke, World } from "./types.ts";
+import {
+  BufferGeometry,
+  Color,
+  CylinderGeometry,
+  EdgesGeometry,
+  Float32BufferAttribute,
+  Fog,
+  Group,
+  IcosahedronGeometry,
+  LineBasicMaterial,
+  LineSegments,
+  Mesh,
+  MeshBasicMaterial,
+  PlaneGeometry,
+  Scene,
+} from "three";
 
-const GROUND_FROM_BOTTOM = 140;
+const PAPER = new Color("#f4efe6");
+const INK = new Color("#2b2b2b");
+const INK_SOFT = new Color("#6b6559");
 
 function seededRand(seed: number) {
   let s = seed >>> 0;
@@ -10,103 +27,142 @@ function seededRand(seed: number) {
   };
 }
 
-function makeStroke(rand: () => number, x0: number, y0: number, len: number, jitter: number): Stroke {
-  const points = [];
-  const steps = Math.max(4, Math.floor(len / 12));
-  for (let i = 0; i <= steps; i++) {
-    const t = i / steps;
-    points.push({
-      x: x0 + t * len,
-      y: y0 + (rand() - 0.5) * jitter,
-    });
-  }
-  return { points, weight: 1 };
+function outlinedMesh(geometry: BufferGeometry, fill: Color = PAPER, edgeThreshold = 35) {
+  const g = new Group();
+  const fillMat = new MeshBasicMaterial({ color: fill });
+  const mesh = new Mesh(geometry, fillMat);
+  mesh.renderOrder = 0;
+  const edges = new EdgesGeometry(geometry, edgeThreshold);
+  const lines = new LineSegments(edges, new LineBasicMaterial({ color: INK }));
+  lines.renderOrder = 1;
+  g.add(mesh);
+  g.add(lines);
+  return g;
 }
 
-function makeHillLayer(width: number, seed: number, amplitude: number, period: number, baseY: number, color: string, weight: number): ParallaxLayer {
-  const rand = seededRand(seed);
-  const points = [];
-  for (let x = -100; x <= width + 100; x += 20) {
-    const y = baseY + Math.sin(x / period + seed) * amplitude + (rand() - 0.5) * amplitude * 0.15;
-    points.push({ x, y });
-  }
-  return {
-    factor: 0.35,
-    strokes: [{ points, weight }],
-    color,
-    weight,
-  };
+function makeTree(rand: () => number): Group {
+  const tree = new Group();
+  const trunkH = 1.6 + rand() * 1.2;
+  const trunkR = 0.08 + rand() * 0.05;
+  const trunk = outlinedMesh(new CylinderGeometry(trunkR, trunkR * 1.2, trunkH, 6), new Color("#e6dfd0"), 65);
+  trunk.position.y = trunkH / 2;
+  tree.add(trunk);
+
+  const crownR = 0.9 + rand() * 0.5;
+  const crownFill = new Color(rand() < 0.5 ? "#e2dac6" : "#d8d0bc");
+  const crown = outlinedMesh(new IcosahedronGeometry(crownR, 0), crownFill, 30);
+  crown.position.y = trunkH + crownR * 0.7;
+  crown.rotation.y = rand() * Math.PI;
+  crown.scale.set(1, 1.15, 1);
+  tree.add(crown);
+
+  return tree;
 }
 
-export function createWorld(width: number): World {
-  const groundY = window.innerHeight - GROUND_FROM_BOTTOM;
-  const rand = seededRand(42);
-  const strokes: Stroke[] = [];
+function makeBush(rand: () => number): Group {
+  const g = new Group();
+  const r = 0.35 + rand() * 0.2;
+  const bush = outlinedMesh(new IcosahedronGeometry(r, 0), new Color("#dcd3bf"), 30);
+  bush.position.y = r * 0.7;
+  bush.scale.set(1.1, 0.85, 1.1);
+  g.add(bush);
+  return g;
+}
 
-  strokes.push({
-    points: (() => {
-      const pts = [];
-      for (let x = 0; x <= width; x += 8) {
-        pts.push({ x, y: groundY + (rand() - 0.5) * 2 });
-      }
-      return pts;
-    })(),
-    weight: 1.4,
-  });
+function makeGrassClump(rand: () => number, x: number, z: number): LineSegments {
+  const positions: number[] = [];
+  const blades = 3 + Math.floor(rand() * 3);
+  for (let i = 0; i < blades; i++) {
+    const bx = (rand() - 0.5) * 0.25;
+    const bz = (rand() - 0.5) * 0.25;
+    const h = 0.12 + rand() * 0.15;
+    positions.push(x + bx, 0, z + bz, x + bx + (rand() - 0.5) * 0.05, h, z + bz + (rand() - 0.5) * 0.05);
+  }
+  const geo = new BufferGeometry();
+  geo.setAttribute("position", new Float32BufferAttribute(positions, 3));
+  return new LineSegments(geo, new LineBasicMaterial({ color: INK }));
+}
 
-  for (let i = 0; i < 60; i++) {
+function makeGroundStrokes(rand: () => number, width: number): LineSegments {
+  const positions: number[] = [];
+  const strokes = Math.floor(width * 1.5);
+  for (let i = 0; i < strokes; i++) {
     const x = rand() * width;
-    strokes.push(makeStroke(rand, x, groundY + 6 + rand() * 20, 30 + rand() * 40, 3));
+    const z = -3 + rand() * 8;
+    const len = 0.2 + rand() * 0.5;
+    positions.push(x, 0.005, z, x + len, 0.005, z + (rand() - 0.5) * 0.1);
   }
-
-  for (let i = 0; i < 24; i++) {
-    const x = 200 + rand() * (width - 400);
-    const trunkH = 60 + rand() * 60;
-    const trunkTop = groundY - trunkH;
-    strokes.push({ points: [{ x, y: groundY }, { x: x + (rand() - 0.5) * 6, y: trunkTop }], weight: 1.2 });
-    const crown = 30 + rand() * 20;
-    const crownPts = [];
-    for (let a = 0; a <= Math.PI * 2 + 0.1; a += 0.35) {
-      crownPts.push({
-        x: x + Math.cos(a) * crown + (rand() - 0.5) * 6,
-        y: trunkTop + Math.sin(a) * crown * 0.7 + (rand() - 0.5) * 5,
-      });
-    }
-    strokes.push({ points: crownPts, weight: 1 });
-  }
-
-  const parallax: ParallaxLayer[] = [
-    makeHillLayer(width, 7, 40, 260, groundY - 120, "#c9c1b3", 1.1),
-    makeHillLayer(width, 13, 24, 180, groundY - 60, "#a89f8e", 1),
-  ];
-  parallax[0].factor = 0.25;
-  parallax[1].factor = 0.5;
-
-  return { width, groundY, strokes, parallax };
+  const geo = new BufferGeometry();
+  geo.setAttribute("position", new Float32BufferAttribute(positions, 3));
+  return new LineSegments(geo, new LineBasicMaterial({ color: INK_SOFT }));
 }
 
-function drawStroke(ctx: CanvasRenderingContext2D, s: Stroke, offsetX: number, color: string, weight: number) {
-  if (s.points.length < 2) return;
-  ctx.strokeStyle = color;
-  ctx.lineWidth = weight;
-  ctx.lineJoin = "round";
-  ctx.lineCap = "round";
-  ctx.beginPath();
-  ctx.moveTo(s.points[0].x - offsetX, s.points[0].y);
-  for (let i = 1; i < s.points.length; i++) {
-    ctx.lineTo(s.points[i].x - offsetX, s.points[i].y);
+function makeHillSilhouette(rand: () => number, width: number, baseZ: number, height: number, color: Color): LineSegments {
+  const positions: number[] = [];
+  let prevY = height * 0.6;
+  const step = 0.8;
+  let prevX = -5;
+  for (let x = -5; x <= width + 5; x += step) {
+    const y = height * (0.5 + Math.sin(x * 0.15 + baseZ) * 0.3 + (rand() - 0.5) * 0.15);
+    positions.push(prevX, prevY, baseZ, x, y, baseZ);
+    prevX = x;
+    prevY = y;
   }
-  ctx.stroke();
+  const geo = new BufferGeometry();
+  geo.setAttribute("position", new Float32BufferAttribute(positions, 3));
+  return new LineSegments(geo, new LineBasicMaterial({ color }));
 }
 
-export function drawWorld(ctx: CanvasRenderingContext2D, state: GameState, w: number, h: number) {
-  ctx.fillStyle = "#f4efe6";
-  ctx.fillRect(0, 0, w, h);
+export function buildWorld(worldWidth: number): { scene: Scene; worldRoot: Group } {
+  const scene = new Scene();
+  scene.background = PAPER;
+  scene.fog = new Fog(PAPER.getHex(), 18, 55);
 
-  for (const layer of state.world.parallax) {
-    const offset = state.cameraX * layer.factor;
-    for (const s of layer.strokes) drawStroke(ctx, s, offset, layer.color, layer.weight);
+  const worldRoot = new Group();
+  scene.add(worldRoot);
+
+  const ground = new Mesh(
+    new PlaneGeometry(worldWidth + 40, 60),
+    new MeshBasicMaterial({ color: PAPER })
+  );
+  ground.rotation.x = -Math.PI / 2;
+  ground.position.set(worldWidth / 2, 0, 0);
+  worldRoot.add(ground);
+
+  const rand = seededRand(42);
+
+  worldRoot.add(makeGroundStrokes(rand, worldWidth));
+
+  worldRoot.add(makeHillSilhouette(rand, worldWidth, -14, 4.5, INK_SOFT));
+  worldRoot.add(makeHillSilhouette(rand, worldWidth, -22, 6, new Color("#8f8779")));
+  worldRoot.add(makeHillSilhouette(rand, worldWidth, -30, 8, new Color("#a89f8e")));
+
+  for (let i = 0; i < 45; i++) {
+    const x = 3 + rand() * (worldWidth - 6);
+    const z = -9 + rand() * 8;
+    const tree = makeTree(rand);
+    tree.position.set(x, 0, z);
+    tree.scale.setScalar(0.85 + rand() * 0.35);
+    worldRoot.add(tree);
   }
 
-  for (const s of state.world.strokes) drawStroke(ctx, s, state.cameraX, "#2b2b2b", s.weight);
+  for (let i = 0; i < 30; i++) {
+    const x = rand() * worldWidth;
+    const z = -6 + rand() * 5;
+    const bush = makeBush(rand);
+    bush.position.set(x, 0, z);
+    worldRoot.add(bush);
+  }
+
+  for (let i = 0; i < 120; i++) {
+    const x = rand() * worldWidth;
+    const z = -6 + rand() * 9;
+    worldRoot.add(makeGrassClump(rand, x, z));
+  }
+
+  const sun = outlinedMesh(new IcosahedronGeometry(0.6, 2), new Color("#efe7d3"));
+  sun.position.set(worldWidth / 2, 9, -35);
+  worldRoot.add(sun);
+
+  return { scene, worldRoot };
 }
