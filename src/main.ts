@@ -1,73 +1,53 @@
+import { PerspectiveCamera, WebGLRenderer } from "three";
 import { createInput } from "./input.ts";
-import { createWorld, drawWorld } from "./world.ts";
-import { createPlayer, updatePlayer, drawPlayer } from "./player.ts";
-import { drawViewfinder, tryTakePhoto } from "./camera.ts";
-import { createSmudges, updateSmudges, drawSmudges } from "./smudges.ts";
+import { buildWorld } from "./world.ts";
+import { createPlayer, updatePlayer } from "./player.ts";
+import { attachSmudges, createSmudges, updateSmudges } from "./smudges.ts";
+import { drawViewfinder, hideViewfinder, tryTakePhoto } from "./camera.ts";
 import { addSnapshot, renderLibrary } from "./library.ts";
 import type { GameState } from "./types.ts";
 
 const canvas = document.getElementById("game") as HTMLCanvasElement;
-const ctx = canvas.getContext("2d")!;
+
+const renderer = new WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+renderer.setClearColor(0xf4efe6, 1);
+
+const camera = new PerspectiveCamera(62, window.innerWidth / window.innerHeight, 0.1, 200);
+camera.position.set(0, 3, 8);
 
 function resize() {
-  const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  canvas.width = Math.floor(window.innerWidth * dpr);
-  canvas.height = Math.floor(window.innerHeight * dpr);
-  canvas.style.width = window.innerWidth + "px";
-  canvas.style.height = window.innerHeight + "px";
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const w = window.innerWidth;
+  const h = window.innerHeight;
+  renderer.setSize(w, h, false);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
 }
 resize();
 window.addEventListener("resize", resize);
 
+const worldWidth = 120;
+const { scene, worldRoot } = buildWorld(worldWidth);
+const player = createPlayer(6);
+worldRoot.add(player.root);
+
+const smudges = createSmudges(worldWidth);
+attachSmudges(smudges, worldRoot);
+
 const input = createInput(canvas);
-const world = createWorld(4000);
-const player = createPlayer(200, 0);
-const smudges = createSmudges(world.width);
 
 const state: GameState = {
-  world,
+  scene,
+  camera,
+  worldWidth,
+  worldRoot,
   player,
   smudges,
   input,
-  cameraX: 0,
   time: 0,
   coins: 0,
   snapshotCount: 0,
 };
-
-function viewportW() { return window.innerWidth; }
-function viewportH() { return window.innerHeight; }
-
-function update(dt: number) {
-  state.time += dt;
-  updatePlayer(state.player, state.input, dt, state.world.width);
-  updateSmudges(state.smudges, state.time);
-
-  const targetCam = state.player.x - viewportW() * 0.4;
-  state.cameraX += (targetCam - state.cameraX) * Math.min(1, dt * 6);
-  state.cameraX = Math.max(0, Math.min(state.world.width - viewportW(), state.cameraX));
-
-  if (state.input.consumeSnap() && state.player.cameraRaised) {
-    const shot = tryTakePhoto(state);
-    if (shot) {
-      addSnapshot(shot);
-      state.snapshotCount += 1;
-      state.coins += Math.round(shot.clarity * 10);
-      updateHud(state);
-    }
-  }
-}
-
-function render() {
-  const w = viewportW();
-  const h = viewportH();
-  ctx.clearRect(0, 0, w, h);
-  drawWorld(ctx, state, w, h);
-  drawSmudges(ctx, state, w, h);
-  drawPlayer(ctx, state, w, h);
-  if (state.player.cameraRaised) drawViewfinder(ctx, state, w, h);
-}
 
 function updateHud(s: GameState) {
   const coin = document.getElementById("coin");
@@ -78,12 +58,56 @@ function updateHud(s: GameState) {
 updateHud(state);
 renderLibrary();
 
+function update(dt: number) {
+  state.time += dt;
+  updatePlayer(state.player, state.input, dt, state.worldWidth);
+  updateSmudges(state.smudges, state.time);
+
+  // 3/4 over-the-shoulder view: camera pulls back behind the player's facing
+  // direction and up, and looks ahead into the vanishing point so the
+  // perspective lines converge into the frame.
+  const facing = state.player.facing;
+  const targetX = state.player.worldX - facing * 1.6;
+  const targetZ = 7.2;
+  const targetY = 3.0;
+  camera.position.x += (targetX - camera.position.x) * Math.min(1, dt * 4);
+  camera.position.z += (targetZ - camera.position.z) * Math.min(1, dt * 4);
+  camera.position.y += (targetY - camera.position.y) * Math.min(1, dt * 4);
+  camera.lookAt(state.player.worldX + facing * 5, 1.0, -4);
+
+  if (state.player.cameraRaised) {
+    drawViewfinder(state, window.innerWidth, window.innerHeight);
+  } else {
+    hideViewfinder();
+  }
+
+  if (state.input.consumeSnap() && state.player.cameraRaised) {
+    const shot = tryTakePhoto(state);
+    if (shot) {
+      addSnapshot(shot);
+      state.snapshotCount += 1;
+      state.coins += Math.round(shot.clarity * 10);
+      updateHud(state);
+      shutterFlash();
+    }
+  }
+}
+
+function shutterFlash() {
+  const flash = document.createElement("div");
+  flash.style.cssText =
+    "position:fixed;inset:0;background:#fff;opacity:0.7;pointer-events:none;z-index:10;transition:opacity 220ms ease;";
+  document.body.appendChild(flash);
+  requestAnimationFrame(() => (flash.style.opacity = "0"));
+  setTimeout(() => flash.remove(), 260);
+}
+
 let last = performance.now();
 function frame(now: number) {
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
   update(dt);
-  render();
+  renderer.render(state.scene, camera);
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);

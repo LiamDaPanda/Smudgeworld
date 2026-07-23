@@ -1,4 +1,13 @@
-import type { GameState, Smudge } from "./types.ts";
+import {
+  CanvasTexture,
+  Color,
+  Group,
+  NormalBlending,
+  Sprite,
+  SpriteMaterial,
+  Vector3,
+} from "three";
+import type { Smudge } from "./types.ts";
 
 const NAMES_COMMON = ["Park Cat", "Bench Sitter", "Pigeon Council", "Kite Runner", "Fountain Diver"];
 const NAMES_TIMED = ["Comet Sparrow", "Blink Fox"];
@@ -11,31 +20,94 @@ function rand(seed: number) {
   };
 }
 
+function makeSmudgeTexture(size = 256): CanvasTexture {
+  const c = document.createElement("canvas");
+  c.width = c.height = size;
+  const ctx = c.getContext("2d")!;
+  const g = ctx.createRadialGradient(size / 2, size / 2, size * 0.05, size / 2, size / 2, size * 0.5);
+  g.addColorStop(0, "rgba(20, 20, 20, 0.95)");
+  g.addColorStop(0.55, "rgba(20, 20, 20, 0.55)");
+  g.addColorStop(1, "rgba(20, 20, 20, 0)");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, size, size);
+
+  // Sketchy outline swirl
+  ctx.strokeStyle = "rgba(20, 20, 20, 0.4)";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  for (let a = 0; a < Math.PI * 2; a += 0.35) {
+    const r = size * (0.28 + Math.sin(a * 3) * 0.05);
+    const x = size / 2 + Math.cos(a) * r;
+    const y = size / 2 + Math.sin(a) * r;
+    if (a === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }
+  ctx.closePath();
+  ctx.stroke();
+
+  const tex = new CanvasTexture(c);
+  tex.needsUpdate = true;
+  return tex;
+}
+
+let SHARED_TEX: CanvasTexture | null = null;
+function smudgeTex(): CanvasTexture {
+  if (!SHARED_TEX) SHARED_TEX = makeSmudgeTexture();
+  return SHARED_TEX;
+}
+
+function makeSmudgeSprite(radius: number): Group {
+  const g = new Group();
+  const mat = new SpriteMaterial({
+    map: smudgeTex(),
+    color: new Color(0xffffff),
+    transparent: true,
+    depthWrite: false,
+    blending: NormalBlending,
+  });
+  const sprite = new Sprite(mat);
+  sprite.scale.setScalar(radius * 2.4);
+  g.add(sprite);
+  return g;
+}
+
 export function createSmudges(worldWidth: number): Smudge[] {
   const r = rand(1337);
   const smudges: Smudge[] = [];
-  for (let i = 0; i < 5; i++) {
+  for (let i = 0; i < 6; i++) {
+    const radius = 0.55 + r() * 0.2;
+    const sprite = makeSmudgeSprite(radius);
+    const x = 6 + i * (worldWidth / 7) + r() * 4;
+    const y = 0.9 + r() * 0.5;
+    const z = -0.5 + r() * 2.5;
+    sprite.position.set(x, y, z);
     smudges.push({
       id: `common-${i}`,
       kind: "common",
-      x: 500 + i * (worldWidth / 6) + r() * 60,
-      baseY: 60 + r() * 40,
-      radius: 22 + r() * 10,
+      worldPos: new Vector3(x, y, z),
+      radius,
       wobbleSeed: r() * 100,
       visible: true,
+      sprite,
       name: NAMES_COMMON[i % NAMES_COMMON.length],
       set: "Park Life",
     });
   }
   for (let i = 0; i < 2; i++) {
+    const radius = 0.5;
+    const sprite = makeSmudgeSprite(radius);
+    const x = 15 + i * 60 + r() * 5;
+    const y = 1.1 + r() * 0.3;
+    const z = 0 + r() * 2;
+    sprite.position.set(x, y, z);
+    sprite.visible = false;
     smudges.push({
       id: `timed-${i}`,
       kind: "timed",
-      x: 900 + i * 1400 + r() * 100,
-      baseY: 90 + r() * 30,
-      radius: 18,
+      worldPos: new Vector3(x, y, z),
+      radius,
       wobbleSeed: r() * 100,
       visible: false,
+      sprite,
       timedWindow: { start: 0, end: 0 },
       name: NAMES_TIMED[i % NAMES_TIMED.length],
       set: "After Dark",
@@ -44,51 +116,26 @@ export function createSmudges(worldWidth: number): Smudge[] {
   return smudges;
 }
 
-export function updateSmudges(smudges: Smudge[], time: number) {
-  for (const s of smudges) {
-    if (s.kind !== "timed") continue;
-    const cycle = 6;
-    const phase = ((time + s.wobbleSeed) % cycle) / cycle;
-    if (phase > 0.9) {
-      const start = time - (phase - 0.9) * cycle;
-      s.timedWindow = { start, end: start + 1 };
-      s.visible = true;
-    } else {
-      s.visible = false;
-    }
-  }
+export function attachSmudges(smudges: Smudge[], worldRoot: Group) {
+  for (const s of smudges) worldRoot.add(s.sprite);
 }
 
-export function drawSmudges(ctx: CanvasRenderingContext2D, state: GameState, _w: number, _h: number) {
-  const groundY = state.world.groundY;
-  for (const s of state.smudges) {
-    if (!s.visible) continue;
-    const sx = s.x - state.cameraX;
-    const sy = groundY - s.baseY;
-    if (sx < -100 || sx > window.innerWidth + 100) continue;
-
-    const wobble = Math.sin(state.time * 2 + s.wobbleSeed) * 2;
-    ctx.save();
-    ctx.translate(sx + wobble, sy);
-    const grad = ctx.createRadialGradient(0, 0, s.radius * 0.2, 0, 0, s.radius);
-    grad.addColorStop(0, "rgba(30,30,30,0.85)");
-    grad.addColorStop(1, "rgba(30,30,30,0)");
-    ctx.fillStyle = grad;
-    ctx.beginPath();
-    ctx.arc(0, 0, s.radius, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.strokeStyle = "rgba(20,20,20,0.35)";
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    for (let a = 0; a < Math.PI * 2; a += 0.5) {
-      const rr = s.radius * (0.8 + Math.sin(a * 3 + s.wobbleSeed) * 0.15);
-      const px = Math.cos(a) * rr;
-      const py = Math.sin(a) * rr;
-      if (a === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+export function updateSmudges(smudges: Smudge[], time: number) {
+  for (const s of smudges) {
+    if (s.kind === "timed") {
+      const cycle = 6;
+      const phase = ((time + s.wobbleSeed) % cycle) / cycle;
+      if (phase > 0.9) {
+        const start = time - (phase - 0.9) * cycle;
+        s.timedWindow = { start, end: start + 1 };
+        s.visible = true;
+      } else {
+        s.visible = false;
+      }
+      s.sprite.visible = s.visible;
     }
-    ctx.closePath();
-    ctx.stroke();
-    ctx.restore();
+    // Idle wobble
+    const wobble = Math.sin(time * 2 + s.wobbleSeed) * 0.05;
+    s.sprite.position.set(s.worldPos.x, s.worldPos.y + wobble, s.worldPos.z);
   }
 }
