@@ -1,0 +1,53 @@
+# Smudgeworld
+
+A 2D side-scrolling collection game. Web-first, mobile to follow.
+
+You play a stickman wandering a hand-drawn, line-art world with a camera around your neck. The world is smudged: scattered through it are dark, blurry figures called **smudges** that the eye can't resolve. Only a photograph can un-smudge one.
+
+## Core loop
+
+- Explore the world on foot.
+- Spot smudges — dark, blurry figures the eye can't resolve.
+- Snap a photo. The picture develops into a **snapshot**, the game's collectible card.
+- Shots of anything else land in your personal **photo library** as keepsakes, outside the collection.
+
+The world itself stays smudged forever. The only clear images of these creatures anywhere are the ones inside players' libraries.
+
+## Snapshots and grading
+
+A snapshot's **grade** is how sharp it develops:
+
+- Timing, framing, and condition bonuses (night, rain, etc.) set a **clarity percentage**.
+- A sloppy shot stays murky. A perfect one comes out razor sharp.
+- You can reshoot any smudge when it reappears.
+- Your library keeps the clearest take. Older takes become tradeable **spares**.
+- Every snapshot is stamped with the exact moment it was caught — provenance is part of the card.
+
+## Smudge types
+
+- **Common** — easy, always around.
+- **Timed** — demand split-second timing inside a one-second window.
+- **Day-locked** — appear only on certain real-world days (a Saturday street market, a monthly comet).
+
+## Sets and progression
+
+- Snapshots slot into **sets** like "Park Life" or "After Dark."
+- Completing a set pays out coins and camera gear — zoom lenses, faster shutters, night film.
+- Gear unlocks deeper zones hiding rarer smudges.
+
+## Economy
+
+- Single currency: **coins**.
+- Earned by playing, or topped up with real money.
+- Spent on a **player marketplace**:
+  - Spares get listed.
+  - Missed day-locked moments can be bought from someone who was there.
+- A small **transaction fee** fights inflation and doubles as revenue.
+- Scarcity comes from skill and the calendar — never loot odds.
+
+## Build order
+
+1. **Single-player core.**
+2. **Accounts and direct trading.**
+3. **Marketplace** on earned coins.
+4. **Purchasable coins** — only once the economy has proven itself.
