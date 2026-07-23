@@ -14,6 +14,15 @@ export function createInput(canvas: HTMLCanvasElement): InputState {
     document.body.classList.add("touch");
     const hint = document.getElementById("hint");
     if (hint) hint.textContent = "◀ ▶ walk · hold 📷 to raise camera · drag to aim · SNAP to shoot";
+    // Try to lock landscape on first user gesture (required for the API to fire)
+    const lockLandscape = () => {
+      const anyScreen = screen as unknown as { orientation?: { lock?: (o: string) => Promise<void> } };
+      anyScreen.orientation?.lock?.("landscape").catch(() => {});
+      window.removeEventListener("touchstart", lockLandscape);
+      window.removeEventListener("pointerdown", lockLandscape);
+    };
+    window.addEventListener("touchstart", lockLandscape, { once: true, passive: true });
+    window.addEventListener("pointerdown", lockLandscape, { once: true });
   }
 
   window.addEventListener("keydown", (e) => {
