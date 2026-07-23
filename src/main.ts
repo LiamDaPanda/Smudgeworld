@@ -13,8 +13,8 @@ const renderer = new WebGLRenderer({ canvas, antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
 renderer.setClearColor(0xf4efe6, 1);
 
-const camera = new PerspectiveCamera(62, window.innerWidth / window.innerHeight, 0.1, 200);
-camera.position.set(0, 3, 8);
+const camera = new PerspectiveCamera(58, window.innerWidth / window.innerHeight, 0.1, 200);
+camera.position.set(0, 4, 8);
 
 function resize() {
   const w = window.innerWidth;
@@ -26,12 +26,13 @@ function resize() {
 resize();
 window.addEventListener("resize", resize);
 
-const worldWidth = 120;
-const { scene, worldRoot } = buildWorld(worldWidth);
-const player = createPlayer(6);
+const worldWidth = 60;
+const worldDepth = 40;
+const { scene, worldRoot } = buildWorld(worldWidth, worldDepth);
+const player = createPlayer(worldWidth / 2, worldDepth / 2);
 worldRoot.add(player.root);
 
-const smudges = createSmudges(worldWidth);
+const smudges = createSmudges(worldWidth, worldDepth);
 attachSmudges(smudges, worldRoot);
 
 const input = createInput(canvas);
@@ -40,6 +41,7 @@ const state: GameState = {
   scene,
   camera,
   worldWidth,
+  worldDepth,
   worldRoot,
   player,
   smudges,
@@ -48,6 +50,8 @@ const state: GameState = {
   coins: 0,
   snapshotCount: 0,
 };
+
+const bounds = { minX: 1, maxX: worldWidth - 1, minZ: 1, maxZ: worldDepth - 1 };
 
 function updateHud(s: GameState) {
   const coin = document.getElementById("coin");
@@ -58,22 +62,33 @@ function updateHud(s: GameState) {
 updateHud(state);
 renderLibrary();
 
+// Third-person follow: camera sits behind the player relative to their yaw,
+// slightly elevated, looking down at head height. When they turn, the camera
+// smoothly swings around to stay behind.
+const CAM_DISTANCE = 6.5;
+const CAM_HEIGHT = 3.4;
+const CAM_LOOK_HEIGHT = 1.3;
+
 function update(dt: number) {
   state.time += dt;
-  updatePlayer(state.player, state.input, dt, state.worldWidth);
+  updatePlayer(state.player, state.input, dt, bounds);
   updateSmudges(state.smudges, state.time);
 
-  // 3/4 over-the-shoulder view: camera pulls back behind the player's facing
-  // direction and up, and looks ahead into the vanishing point so the
-  // perspective lines converge into the frame.
-  const facing = state.player.facing;
-  const targetX = state.player.worldX - facing * 1.6;
-  const targetZ = 7.2;
-  const targetY = 3.0;
-  camera.position.x += (targetX - camera.position.x) * Math.min(1, dt * 4);
-  camera.position.z += (targetZ - camera.position.z) * Math.min(1, dt * 4);
-  camera.position.y += (targetY - camera.position.y) * Math.min(1, dt * 4);
-  camera.lookAt(state.player.worldX + facing * 5, 1.0, -4);
+  const p = state.player;
+  // "Behind" the player means opposite of the direction they're facing.
+  // yaw=0 faces +X, yaw=PI faces -X. Player forward = (sin(yaw), 0, cos(yaw))
+  // — actually with our convention: forward = (-sin(yaw), 0, -cos(yaw)).
+  // Camera sits at player - forward * distance.
+  const forwardX = -Math.sin(p.yaw);
+  const forwardZ = -Math.cos(p.yaw);
+  const targetX = p.worldX - forwardX * CAM_DISTANCE;
+  const targetZ = p.worldZ - forwardZ * CAM_DISTANCE;
+  const targetY = CAM_HEIGHT;
+  const k = Math.min(1, dt * 4);
+  camera.position.x += (targetX - camera.position.x) * k;
+  camera.position.z += (targetZ - camera.position.z) * k;
+  camera.position.y += (targetY - camera.position.y) * k;
+  camera.lookAt(p.worldX, CAM_LOOK_HEIGHT, p.worldZ);
 
   if (state.player.cameraRaised) {
     drawViewfinder(state, window.innerWidth, window.innerHeight);

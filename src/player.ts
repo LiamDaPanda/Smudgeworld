@@ -16,7 +16,7 @@ import type { InputState, Player } from "./types.ts";
 
 const INK = new Color("#1a1a1a");
 const PAPER = new Color("#f4efe6");
-const WALK_SPEED = 4.2;
+const WALK_SPEED = 4.4;
 
 const HEAD_R = 0.18;
 const HEAD_Y = 1.72;
@@ -40,41 +40,7 @@ function makeLimb(): Group {
   return g;
 }
 
-function makeCamera(): Group {
-  const g = new Group();
-  const w = 0.16;
-  const h = 0.1;
-  const d = 0.08;
-  const body = new Mesh(
-    new BufferGeometry().setFromPoints([
-      new Vector3(-w / 2, -h / 2, -d / 2),
-      new Vector3(w / 2, -h / 2, -d / 2),
-      new Vector3(w / 2, h / 2, -d / 2),
-      new Vector3(-w / 2, h / 2, -d / 2),
-      new Vector3(-w / 2, -h / 2, d / 2),
-      new Vector3(w / 2, -h / 2, d / 2),
-      new Vector3(w / 2, h / 2, d / 2),
-      new Vector3(-w / 2, h / 2, d / 2),
-    ]),
-    new MeshBasicMaterial({ color: PAPER })
-  );
-  // Body as simple line edges
-  const edges = new EdgesGeometry(boxGeometry(w, h, d));
-  g.add(new LineSegments(edges, new LineBasicMaterial({ color: INK })));
-  body.visible = false;
-  g.add(body);
-
-  const lens = new Mesh(
-    new CircleGeometry(0.03, 16),
-    new MeshBasicMaterial({ color: INK })
-  );
-  lens.position.set(0, 0, d / 2 + 0.001);
-  g.add(lens);
-  return g;
-}
-
 function boxGeometry(w: number, h: number, d: number) {
-  // Simple box via BufferGeometry so we don't drag in BoxGeometry import above
   const geo = new BufferGeometry();
   const hw = w / 2, hh = h / 2, hd = d / 2;
   const verts = new Float32Array([
@@ -94,11 +60,26 @@ function boxGeometry(w: number, h: number, d: number) {
   return geo;
 }
 
-export function createPlayer(startX: number): Player {
-  const root = new Group();
-  root.position.set(startX, 0, 0);
+function makeCamera(): Group {
+  const g = new Group();
+  const w = 0.16;
+  const h = 0.1;
+  const d = 0.08;
+  const edges = new EdgesGeometry(boxGeometry(w, h, d));
+  g.add(new LineSegments(edges, new LineBasicMaterial({ color: INK })));
+  const lens = new Mesh(
+    new CircleGeometry(0.03, 16),
+    new MeshBasicMaterial({ color: INK })
+  );
+  lens.position.set(0, 0, d / 2 + 0.001);
+  g.add(lens);
+  return g;
+}
 
-  // Head (billboard-ish circle facing camera, with an outer outline)
+export function createPlayer(startX: number, startZ: number): Player {
+  const root = new Group();
+  root.position.set(startX, 0, startZ);
+
   const head = new Mesh(new CircleGeometry(HEAD_R, 24), new MeshBasicMaterial({ color: PAPER }));
   head.position.y = HEAD_Y;
   root.add(head);
@@ -111,10 +92,8 @@ export function createPlayer(startX: number): Player {
   }
   root.add(lineFrom(headOutlinePts));
 
-  // Spine
   root.add(lineFrom([new Vector3(0, NECK_Y, 0), new Vector3(0, HIP_Y, 0)]));
 
-  // Neck strap (V shape)
   const strap = lineFrom([
     new Vector3(-0.09, NECK_Y - 0.02, 0),
     new Vector3(0, SHOULDER_Y - 0.05, 0.04),
@@ -122,12 +101,10 @@ export function createPlayer(startX: number): Player {
   ]);
   root.add(strap);
 
-  // Camera hanging on the chest
   const cameraProp = makeCamera();
   cameraProp.position.set(0, SHOULDER_Y - 0.12, 0.06);
   root.add(cameraProp);
 
-  // Arms — each is a Group placed at the shoulder, so rotating the group swings the arm
   const leftArm = makeLimb();
   leftArm.position.set(-0.001, SHOULDER_Y, 0);
   root.add(leftArm);
@@ -136,19 +113,19 @@ export function createPlayer(startX: number): Player {
   rightArm.position.set(0.001, SHOULDER_Y, 0);
   root.add(rightArm);
 
-  // Legs
   const leftLeg = makeLimb();
-  leftLeg.position.set(-0.02, HIP_Y, 0);
+  leftLeg.position.set(-0.04, HIP_Y, 0);
   root.add(leftLeg);
 
   const rightLeg = makeLimb();
-  rightLeg.position.set(0.02, HIP_Y, 0);
+  rightLeg.position.set(0.04, HIP_Y, 0);
   root.add(rightLeg);
 
   return {
     root,
     worldX: startX,
-    facing: 1,
+    worldZ: startZ,
+    yaw: 0,
     walkPhase: 0,
     cameraRaised: false,
     leftArm,
@@ -159,31 +136,50 @@ export function createPlayer(startX: number): Player {
   };
 }
 
-export function updatePlayer(p: Player, input: InputState, dt: number, worldWidth: number) {
+export interface WorldBounds {
+  minX: number;
+  maxX: number;
+  minZ: number;
+  maxZ: number;
+}
+
+export function updatePlayer(p: Player, input: InputState, dt: number, bounds: WorldBounds) {
   p.cameraRaised = input.cameraHeld;
   const canMove = !p.cameraRaised;
-  let dir = 0;
-  if (canMove) {
-    if (input.left) dir -= 1;
-    if (input.right) dir += 1;
+
+  let mx = canMove ? input.moveX : 0;
+  let mz = canMove ? input.moveZ : 0;
+  const mag = Math.hypot(mx, mz);
+  if (mag > 1) { mx /= mag; mz /= mag; }
+  const moving = mag > 0.05;
+
+  if (moving) {
+    p.worldX += mx * WALK_SPEED * dt;
+    p.worldZ += mz * WALK_SPEED * dt;
+    p.worldX = Math.max(bounds.minX, Math.min(bounds.maxX, p.worldX));
+    p.worldZ = Math.max(bounds.minZ, Math.min(bounds.maxZ, p.worldZ));
+
+    // Face movement direction. Yaw 0 = facing +X. Player faces atan2(mx, mz)
+    // so that mz=-1 (forward W) makes the player face away from the camera.
+    const targetYaw = Math.atan2(mx, mz) + Math.PI;
+    // Shortest-arc rotate toward target
+    let diff = ((targetYaw - p.yaw + Math.PI) % (Math.PI * 2)) - Math.PI;
+    if (diff < -Math.PI) diff += Math.PI * 2;
+    p.yaw += diff * Math.min(1, dt * 12);
   }
-  const vx = dir * WALK_SPEED;
-  p.worldX += vx * dt;
-  p.worldX = Math.max(1, Math.min(worldWidth - 1, p.worldX));
-  if (dir !== 0) p.facing = dir > 0 ? 1 : -1;
-  p.walkPhase += Math.abs(vx) * dt * 2.2;
 
-  p.root.position.x = p.worldX;
-  p.root.rotation.y = p.facing === 1 ? 0 : Math.PI;
+  p.walkPhase += (moving ? WALK_SPEED : 0) * dt * 2.2;
 
-  const swing = Math.sin(p.walkPhase);
+  p.root.position.set(p.worldX, 0, p.worldZ);
+  p.root.rotation.y = p.yaw;
+
+  const swing = moving ? Math.sin(p.walkPhase) : 0;
   const legAmp = 0.55;
   p.leftLeg.rotation.x = swing * legAmp;
   p.rightLeg.rotation.x = -swing * legAmp;
 
   const armAmp = 0.35;
   if (p.cameraRaised) {
-    // Both arms up holding the camera to the eye
     p.leftArm.rotation.x = -1.3;
     p.rightArm.rotation.x = -1.3;
     p.leftArm.rotation.z = 0.15;

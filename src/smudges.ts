@@ -70,15 +70,25 @@ function makeSmudgeSprite(radius: number): Group {
   return g;
 }
 
-export function createSmudges(worldWidth: number): Smudge[] {
+export function createSmudges(worldWidth: number, worldDepth: number): Smudge[] {
   const r = rand(1337);
   const smudges: Smudge[] = [];
+  const clearRadius = 4;
+  const cx = worldWidth / 2;
+  const cz = worldDepth / 2;
+  const pick = (): [number, number] => {
+    for (let tries = 0; tries < 40; tries++) {
+      const x = 4 + r() * (worldWidth - 8);
+      const z = 4 + r() * (worldDepth - 8);
+      if (Math.hypot(x - cx, z - cz) >= clearRadius) return [x, z];
+    }
+    return [worldWidth * 0.75, worldDepth * 0.75];
+  };
   for (let i = 0; i < 6; i++) {
     const radius = 0.55 + r() * 0.2;
     const sprite = makeSmudgeSprite(radius);
-    const x = 6 + i * (worldWidth / 7) + r() * 4;
+    const [x, z] = pick();
     const y = 0.9 + r() * 0.5;
-    const z = -0.5 + r() * 2.5;
     sprite.position.set(x, y, z);
     smudges.push({
       id: `common-${i}`,
@@ -95,9 +105,8 @@ export function createSmudges(worldWidth: number): Smudge[] {
   for (let i = 0; i < 2; i++) {
     const radius = 0.5;
     const sprite = makeSmudgeSprite(radius);
-    const x = 15 + i * 60 + r() * 5;
+    const [x, z] = pick();
     const y = 1.1 + r() * 0.3;
-    const z = 0 + r() * 2;
     sprite.position.set(x, y, z);
     sprite.visible = false;
     smudges.push({

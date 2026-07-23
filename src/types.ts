@@ -1,8 +1,8 @@
 import type { PerspectiveCamera, Scene, Group, Vector3 } from "three";
 
 export interface InputState {
-  left: boolean;
-  right: boolean;
+  moveX: number; // -1 (left/west) to +1 (right/east)
+  moveZ: number; // -1 (forward/into scene) to +1 (backward/toward camera)
   cameraHeld: boolean;
   aimX: number;
   aimY: number;
@@ -12,7 +12,8 @@ export interface InputState {
 export interface Player {
   root: Group;
   worldX: number;
-  facing: 1 | -1;
+  worldZ: number;
+  yaw: number; // radians; 0 = facing +X, PI/2 = facing +Z
   walkPhase: number;
   cameraRaised: boolean;
   leftLeg: Group;
@@ -39,6 +40,7 @@ export interface GameState {
   scene: Scene;
   camera: PerspectiveCamera;
   worldWidth: number;
+  worldDepth: number;
   worldRoot: Group;
   player: Player;
   smudges: Smudge[];
