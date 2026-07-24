@@ -1,8 +1,12 @@
 import {
+  AmbientLight,
   BufferGeometry,
   CanvasTexture,
   Color,
+  ConeGeometry,
   CylinderGeometry,
+  DataTexture,
+  DirectionalLight,
   DoubleSide,
   EdgesGeometry,
   Float32BufferAttribute,
@@ -11,17 +15,37 @@ import {
   IcosahedronGeometry,
   LineBasicMaterial,
   LineSegments,
+  Material,
   Mesh,
   MeshBasicMaterial,
+  MeshToonMaterial,
+  NearestFilter,
   PlaneGeometry,
+  RGBAFormat,
   Scene,
   Vector3,
 } from "three";
 
 const PAPER = new Color("#f4efe6");
-const INK = new Color("#2b2b2b");
+const INK = new Color("#1e1e1e");
 const INK_SOFT = new Color("#6b6559");
 const INK_MID = new Color("#4a463d");
+
+// A three-band gradient ramp — anything using MeshToonMaterial with this map
+// gets stepped cel-style shading: shadow, mid, highlight.
+function makeToonRamp(): DataTexture {
+  const data = new Uint8Array([
+    150, 150, 150, 255,
+    210, 210, 210, 255,
+    255, 255, 255, 255,
+  ]);
+  const tex = new DataTexture(data, 3, 1, RGBAFormat);
+  tex.magFilter = NearestFilter;
+  tex.minFilter = NearestFilter;
+  tex.needsUpdate = true;
+  return tex;
+}
+const toonRamp = makeToonRamp();
 
 function seededRand(seed: number) {
   let s = seed >>> 0;
@@ -157,22 +181,21 @@ interface OutlineOptions {
   map?: CanvasTexture;
   edgeThreshold?: number;
   sketchPasses?: number;
+  toon?: boolean; // use MeshToonMaterial so this mesh gets stepped shading from lights
 }
 
 function outlinedMesh(geometry: BufferGeometry, opts: OutlineOptions = {}) {
   const g = new Group();
-  const mesh = new Mesh(
-    geometry,
-    new MeshBasicMaterial({
-      color: opts.fill ?? PAPER,
-      map: opts.map,
-    })
-  );
+  const mat: Material = opts.toon
+    ? new MeshToonMaterial({ color: opts.fill ?? PAPER, map: opts.map, gradientMap: toonRamp })
+    : new MeshBasicMaterial({ color: opts.fill ?? PAPER, map: opts.map });
+  const mesh = new Mesh(geometry, mat);
   mesh.renderOrder = 0;
   g.add(mesh);
   g.add(sketchyEdges(geometry, opts.edgeThreshold ?? 35, INK, opts.sketchPasses ?? 2));
   return g;
 }
+
 
 // Short cross-hatch strokes on the shaded side of a spherical shape.
 function makeCrossHatch(radius: number, count: number, angle: number): LineSegments {
@@ -244,55 +267,122 @@ const trunkTex = makeWatercolorTexture(TRUNK_HEX, 300, 128, 12, 4);
 const hillTex = HILL_HEXES.map((h, i) => makeWatercolorTexture(h, 400 + i, 512, 30, 12));
 const groundTex = makeWatercolorTexture(GROUND_HEX, 500, 1024, 60, 60, 0.12);
 
-function makeTree(rand: () => number): Group {
+// Deciduous tree — tapered trunk, layered crown, occasional branch line to
+// the outer canopy. Two crown lobes make it read more organic than a single
+// icosahedron.
+function makeDeciduousTree(rand: () => number): Group {
   const tree = new Group();
-  const trunkH = 1.6 + rand() * 1.2;
-  const trunkR = 0.08 + rand() * 0.05;
-  const trunk = outlinedMesh(new CylinderGeometry(trunkR, trunkR * 1.2, trunkH, 6), {
-    map: trunkTex,
-    fill: new Color("#c6a983"),
-    edgeThreshold: 65,
-  });
+  const trunkH = 1.8 + rand() * 1.2;
+  const trunkR = 0.09 + rand() * 0.04;
+  const trunk = outlinedMesh(
+    new CylinderGeometry(trunkR * 0.7, trunkR * 1.3, trunkH, 7),
+    { map: trunkTex, fill: new Color("#a07f5a"), edgeThreshold: 60, toon: true }
+  );
   trunk.position.y = trunkH / 2;
   tree.add(trunk);
-  const bark = makeBarkStrokes(rand, trunkR, trunkH, 6 + Math.floor(rand() * 4));
-  bark.position.y = 0;
-  tree.add(bark);
+  tree.add(makeBarkStrokes(rand, trunkR, trunkH, 8 + Math.floor(rand() * 5)));
 
-  const crownR = 0.9 + rand() * 0.5;
+  // Main crown
+  const crownR = 0.95 + rand() * 0.55;
   const crownIdx = Math.floor(rand() * crownTex.length);
-  const crown = outlinedMesh(new IcosahedronGeometry(crownR, 0), {
+  const crown = outlinedMesh(new IcosahedronGeometry(crownR, 1), {
     map: crownTex[crownIdx],
-    fill: new Color(CROWN_HEXES[crownIdx]).multiplyScalar(1.55),
-    edgeThreshold: 30,
-    sketchPasses: 3,
+    fill: new Color(CROWN_HEXES[crownIdx]).multiplyScalar(1.4),
+    edgeThreshold: 45,
+    sketchPasses: 2,
+    toon: true,
   });
-  crown.position.y = trunkH + crownR * 0.7;
+  crown.position.y = trunkH + crownR * 0.55;
   crown.rotation.y = rand() * Math.PI;
-  crown.scale.set(1, 1.15, 1);
+  crown.scale.set(1.05, 1.2, 1.05);
   tree.add(crown);
 
-  const scribbles = makeFoliageScribbles(rand, crownR * 1.05, 60 + Math.floor(rand() * 30), new Color("#3f5232"));
+  // Secondary smaller lobe offset to one side for organic silhouette
+  if (rand() < 0.6) {
+    const lobeR = crownR * (0.55 + rand() * 0.25);
+    const lobeIdx = (crownIdx + 1) % crownTex.length;
+    const lobe = outlinedMesh(new IcosahedronGeometry(lobeR, 1), {
+      map: crownTex[lobeIdx],
+      fill: new Color(CROWN_HEXES[lobeIdx]).multiplyScalar(1.3),
+      edgeThreshold: 45,
+      sketchPasses: 2,
+      toon: true,
+    });
+    const ang = rand() * Math.PI * 2;
+    lobe.position.set(Math.cos(ang) * crownR * 0.6, trunkH + crownR * 0.9, Math.sin(ang) * crownR * 0.6);
+    tree.add(lobe);
+  }
+
+  // A visible branch from trunk to crown
+  const branchPos: number[] = [];
+  const branchAngle = rand() * Math.PI * 2;
+  const branchStartY = trunkH * (0.55 + rand() * 0.25);
+  branchPos.push(
+    Math.cos(branchAngle) * trunkR * 0.5, branchStartY, Math.sin(branchAngle) * trunkR * 0.5,
+    Math.cos(branchAngle) * crownR * 0.7, trunkH + crownR * 0.2, Math.sin(branchAngle) * crownR * 0.7
+  );
+  const branchGeo = new BufferGeometry();
+  branchGeo.setAttribute("position", new Float32BufferAttribute(branchPos, 3));
+  tree.add(new LineSegments(branchGeo, new LineBasicMaterial({ color: new Color("#5b4a34") })));
+
+  const scribbles = makeFoliageScribbles(rand, crownR * 1.05, 80 + Math.floor(rand() * 40), new Color("#2f4022"));
   scribbles.position.copy(crown.position);
   scribbles.scale.copy(crown.scale);
   scribbles.rotation.copy(crown.rotation);
   tree.add(scribbles);
 
-  const hatch = makeCrossHatch(crownR, 5 + Math.floor(rand() * 3), rand() * Math.PI * 2);
+  const hatch = makeCrossHatch(crownR, 6 + Math.floor(rand() * 4), rand() * Math.PI * 2);
   hatch.position.copy(crown.position);
   tree.add(hatch);
 
   return tree;
 }
 
+// Conifer — tall tapered cone with a slim trunk peeking out at the base.
+function makeConiferTree(rand: () => number): Group {
+  const tree = new Group();
+  const trunkH = 0.5 + rand() * 0.3;
+  const trunkR = 0.08;
+  const trunk = outlinedMesh(new CylinderGeometry(trunkR * 0.9, trunkR * 1.2, trunkH, 6), {
+    map: trunkTex, fill: new Color("#8a6a48"), edgeThreshold: 60, toon: true,
+  });
+  trunk.position.y = trunkH / 2;
+  tree.add(trunk);
+
+  const coneH = 2.6 + rand() * 1.4;
+  const coneR = 0.75 + rand() * 0.35;
+  const cone = outlinedMesh(new ConeGeometry(coneR, coneH, 8, 3), {
+    map: crownTex[2],
+    fill: new Color("#5f7d4a"),
+    edgeThreshold: 40,
+    sketchPasses: 2,
+    toon: true,
+  });
+  cone.position.y = trunkH + coneH / 2;
+  tree.add(cone);
+
+  const scribbles = makeFoliageScribbles(rand, coneR * 0.9, 40, new Color("#334a24"));
+  scribbles.position.copy(cone.position);
+  scribbles.scale.set(1, coneH / (coneR * 2), 1);
+  tree.add(scribbles);
+
+  return tree;
+}
+
+// One-shot tree factory that mixes deciduous and occasional conifers.
+function makeTree(rand: () => number): Group {
+  return rand() < 0.2 ? makeConiferTree(rand) : makeDeciduousTree(rand);
+}
+
 function makeBush(rand: () => number): Group {
   const g = new Group();
   const r = 0.35 + rand() * 0.2;
   const idx = Math.floor(rand() * bushTex.length);
-  const bush = outlinedMesh(new IcosahedronGeometry(r, 0), {
+  const bush = outlinedMesh(new IcosahedronGeometry(r, 1), {
     map: bushTex[idx],
-    fill: new Color(BUSH_HEXES[idx]).multiplyScalar(1.5),
-    edgeThreshold: 30,
+    fill: new Color(BUSH_HEXES[idx]).multiplyScalar(1.35),
+    edgeThreshold: 40,
+    toon: true,
   });
   bush.position.y = r * 0.7;
   bush.scale.set(1.1, 0.85, 1.1);
@@ -322,8 +412,9 @@ function makeRock(rand: () => number): Group {
   const r = 0.16 + rand() * 0.22;
   const rock = outlinedMesh(new IcosahedronGeometry(r, 0), {
     map: rockTex,
-    fill: new Color("#9c948a"),
-    edgeThreshold: 30,
+    fill: new Color("#a29b90"),
+    edgeThreshold: 32,
+    toon: true,
   });
   rock.position.y = r * 0.55;
   rock.scale.set(1.2 + rand() * 0.3, 0.7, 1 + rand() * 0.3);
@@ -611,10 +702,68 @@ function makeClouds(rand: () => number, worldWidth: number, worldDepth: number):
   return g;
 }
 
+// A soft warm-tinted path that winds from one edge of the walkable area to
+// the other via the pond. Rendered as many short overlapping tan LineSegments
+// at ground level plus a wide semi-transparent ribbon.
+function makePath(cx1: number, cz1: number, cx2: number, cz2: number, viaX: number, viaZ: number): Group {
+  const g = new Group();
+  const steps = 90;
+  const positions: number[] = [];
+  const ribbonPos: number[] = [];
+  let prev: [number, number] | null = null;
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    // Quadratic bezier through the via-point for a gentle S-curve
+    const u = 1 - t;
+    const x = u * u * cx1 + 2 * u * t * viaX + t * t * cx2;
+    const z = u * u * cz1 + 2 * u * t * viaZ + t * t * cz2;
+    if (prev) {
+      // Ribbon: two triangles per step, forming a strip of width `w`
+      const dx = x - prev[0];
+      const dz = z - prev[1];
+      const len = Math.hypot(dx, dz) || 1;
+      const nx = -dz / len; // normal
+      const nz = dx / len;
+      const w = 0.9;
+      ribbonPos.push(
+        prev[0] + nx * w, 0.005, prev[1] + nz * w,
+        x + nx * w, 0.005, z + nz * w,
+        prev[0] - nx * w, 0.005, prev[1] - nz * w,
+        x + nx * w, 0.005, z + nz * w,
+        x - nx * w, 0.005, z + nz * w,
+        prev[0] - nx * w, 0.005, prev[1] - nz * w,
+      );
+      // Dark scribble marks along the path center
+      positions.push(prev[0], 0.008, prev[1], x, 0.008, z);
+    }
+    prev = [x, z];
+  }
+  const ribbonGeo = new BufferGeometry();
+  ribbonGeo.setAttribute("position", new Float32BufferAttribute(ribbonPos, 3));
+  const ribbonTex = makeWatercolorTexture("#c9ae7b", 600, 256, 22, 8, 0.5);
+  g.add(new Mesh(ribbonGeo, new MeshBasicMaterial({ map: ribbonTex, color: new Color("#d6b988"), transparent: true, opacity: 0.85, depthWrite: false })));
+
+  const centerGeo = new BufferGeometry();
+  centerGeo.setAttribute("position", new Float32BufferAttribute(positions, 3));
+  g.add(new LineSegments(centerGeo, new LineBasicMaterial({ color: INK_SOFT, transparent: true, opacity: 0.4 })));
+  return g;
+}
+
 export function buildWorld(worldWidth: number, worldDepth: number): { scene: Scene; worldRoot: Group } {
   const scene = new Scene();
   scene.background = PAPER;
   scene.fog = new Fog(PAPER.getHex(), Math.max(worldWidth, worldDepth) * 0.6, Math.max(worldWidth, worldDepth) * 1.4);
+
+  // Warm sun from above-right, cool fill from above-left. Toon materials use
+  // this to pick a shading step, giving objects volume without breaking flat
+  // watercolor look.
+  const sun = new DirectionalLight(0xfff2d0, 1.1);
+  sun.position.set(1.4, 2.0, -0.6);
+  scene.add(sun);
+  const fill = new DirectionalLight(0xc8d4e2, 0.4);
+  fill.position.set(-1.2, 1.4, 0.8);
+  scene.add(fill);
+  scene.add(new AmbientLight(0xffffff, 0.55));
 
   const worldRoot = new Group();
   scene.add(worldRoot);
@@ -626,6 +775,9 @@ export function buildWorld(worldWidth: number, worldDepth: number): { scene: Sce
   ground.rotation.x = -Math.PI / 2;
   ground.position.set(worldWidth / 2, 0, worldDepth / 2);
   worldRoot.add(ground);
+
+  // Winding path from SW to NE via the pond area
+  worldRoot.add(makePath(4, worldDepth - 4, worldWidth - 4, 4, worldWidth * 0.5, worldDepth * 0.5));
 
   const rand = seededRand(42);
 
@@ -729,12 +881,12 @@ export function buildWorld(worldWidth: number, worldDepth: number): { scene: Sce
     worldRoot.add(bench);
   }
 
-  const sun = outlinedMesh(new IcosahedronGeometry(0.6, 2), {
+  const sunDisc = outlinedMesh(new IcosahedronGeometry(0.6, 2), {
     fill: new Color("#f5e3b3"),
     edgeThreshold: 25,
   });
-  sun.position.set(worldWidth / 2, 10, -35);
-  worldRoot.add(sun);
+  sunDisc.position.set(worldWidth / 2, 10, -35);
+  worldRoot.add(sunDisc);
 
   void new Vector3();
   void makeHillRing;
