@@ -315,6 +315,149 @@ function makeBush(rand: () => number): Group {
   return g;
 }
 
+// A few small rocks: dark gray with tan wash. Sparse silhouette edges only.
+const rockTex = makeWatercolorTexture("#6a6560", 800, 128, 12, 6, 0.4);
+function makeRock(rand: () => number): Group {
+  const g = new Group();
+  const r = 0.16 + rand() * 0.22;
+  const rock = outlinedMesh(new IcosahedronGeometry(r, 0), {
+    map: rockTex,
+    fill: new Color("#9c948a"),
+    edgeThreshold: 30,
+  });
+  rock.position.y = r * 0.55;
+  rock.scale.set(1.2 + rand() * 0.3, 0.7, 1 + rand() * 0.3);
+  rock.rotation.y = rand() * Math.PI;
+  g.add(rock);
+  return g;
+}
+
+// Flower: short vertical stem + colored dot bloom. Colors picked from a small
+// palette so a bed of flowers reads as a garden not a rainbow.
+const FLOWER_COLORS = ["#e0708a", "#c98060", "#dcb85a", "#a37fc9", "#d8dcc5"];
+function makeFlower(rand: () => number): Group {
+  const g = new Group();
+  const h = 0.14 + rand() * 0.1;
+  const stem = new BufferGeometry();
+  stem.setAttribute("position", new Float32BufferAttribute([0, 0, 0, (rand() - 0.5) * 0.02, h, (rand() - 0.5) * 0.02], 3));
+  g.add(new LineSegments(stem, new LineBasicMaterial({ color: new Color("#3f5232"), transparent: true, opacity: 0.85 })));
+  const color = new Color(FLOWER_COLORS[Math.floor(rand() * FLOWER_COLORS.length)]);
+  const bloom = new Mesh(new IcosahedronGeometry(0.05 + rand() * 0.03, 0), new MeshBasicMaterial({ color }));
+  bloom.position.y = h;
+  g.add(bloom);
+  const bloomEdges = new LineSegments(
+    new EdgesGeometry(bloom.geometry, 20),
+    new LineBasicMaterial({ color: INK, transparent: true, opacity: 0.7 })
+  );
+  bloomEdges.position.y = h;
+  g.add(bloomEdges);
+  return g;
+}
+
+// Lamp post: slim cylinder pole + boxy lamp housing + a soft glow disc facing
+// down. Rare and taller than everything else so they read as landmarks.
+function makeLampPost(rand: () => number): Group {
+  const g = new Group();
+  const poleH = 3.2 + rand() * 0.4;
+  const pole = outlinedMesh(new CylinderGeometry(0.05, 0.07, poleH, 6), {
+    fill: new Color("#2b2b2b"),
+    edgeThreshold: 65,
+    sketchPasses: 1,
+  });
+  pole.position.y = poleH / 2;
+  g.add(pole);
+
+  // A little cross-arm and a lamp box on the top.
+  const arm = new BufferGeometry();
+  arm.setAttribute("position", new Float32BufferAttribute([
+    0, poleH, 0, 0.35, poleH, 0,
+    0.35, poleH, 0, 0.35, poleH - 0.06, 0,
+  ], 3));
+  g.add(new LineSegments(arm, new LineBasicMaterial({ color: INK })));
+
+  const lamp = outlinedMesh(new IcosahedronGeometry(0.14, 0), {
+    fill: new Color("#f0d78a"),
+    edgeThreshold: 30,
+    sketchPasses: 1,
+  });
+  lamp.position.set(0.35, poleH - 0.2, 0);
+  g.add(lamp);
+
+  // Soft warm glow beneath the lamp — a small billboard.
+  const glowTex = makeWatercolorTexture("#f4d68a", 900, 128, 14, 6, 0, true);
+  const glow = new Mesh(
+    new PlaneGeometry(1.4, 1.4),
+    new MeshBasicMaterial({ map: glowTex, color: new Color("#f8dfa2"), transparent: true, opacity: 0.55, depthWrite: false })
+  );
+  glow.position.set(0.35, poleH - 0.2, 0.01);
+  g.add(glow);
+
+  return g;
+}
+
+// Park bench: slats for the seat and backrest with iron legs at either end.
+function makeBench(rand: () => number): Group {
+  const g = new Group();
+  const w = 1.4;
+  const seatH = 0.42;
+  const seatD = 0.32;
+  const backH = 0.42;
+
+  const boxGeo = (bw: number, bh: number, bd: number) => {
+    const geo = new BufferGeometry();
+    const hw = bw / 2, hh = bh / 2, hd = bd / 2;
+    const verts = new Float32Array([
+      -hw, -hh, -hd,  hw, -hh, -hd,  hw,  hh, -hd,  -hw,  hh, -hd,
+      -hw, -hh,  hd,  hw, -hh,  hd,  hw,  hh,  hd,  -hw,  hh,  hd,
+    ]);
+    const indices = [
+      0, 1, 2,  0, 2, 3,
+      4, 6, 5,  4, 7, 6,
+      0, 4, 5,  0, 5, 1,
+      2, 6, 7,  2, 7, 3,
+      1, 5, 6,  1, 6, 2,
+      0, 3, 7,  0, 7, 4,
+    ];
+    geo.setAttribute("position", new Float32BufferAttribute(verts, 3));
+    geo.setIndex(indices);
+    return geo;
+  };
+
+  const seatMesh = outlinedMesh(boxGeo(w, 0.05, seatD), { fill: new Color("#c9a06a"), edgeThreshold: 40, sketchPasses: 1 });
+  seatMesh.position.set(0, seatH, 0);
+  g.add(seatMesh);
+
+  const backMesh = outlinedMesh(boxGeo(w, backH, 0.05), { fill: new Color("#c9a06a"), edgeThreshold: 40, sketchPasses: 1 });
+  backMesh.position.set(0, seatH + backH / 2, -seatD / 2 + 0.025);
+  g.add(backMesh);
+
+  // Iron legs as vertical black lines
+  const legPos: number[] = [];
+  const legXs = [-w / 2 + 0.06, w / 2 - 0.06];
+  const legZs = [-seatD / 2 + 0.04, seatD / 2 - 0.04];
+  for (const lx of legXs) for (const lz of legZs) {
+    legPos.push(lx, 0, lz, lx, seatH, lz);
+  }
+  const legGeo = new BufferGeometry();
+  legGeo.setAttribute("position", new Float32BufferAttribute(legPos, 3));
+  g.add(new LineSegments(legGeo, new LineBasicMaterial({ color: INK })));
+
+  g.rotation.y = rand() * Math.PI * 2;
+  return g;
+}
+
+// Soft dark ellipse under a large object — reads as a ground shadow.
+const shadowTex = makeWatercolorTexture("#3a352b", 950, 128, 10, 4, 0, true);
+function makeGroundShadow(radius: number): Mesh {
+  const m = new Mesh(
+    new PlaneGeometry(radius * 2, radius * 1.2),
+    new MeshBasicMaterial({ map: shadowTex, color: new Color("#2b2b2b"), transparent: true, opacity: 0.28, depthWrite: false })
+  );
+  m.rotation.x = -Math.PI / 2;
+  m.position.y = 0.003;
+  return m;
+}
+
 function makeGrassClump(rand: () => number, x: number, z: number): LineSegments {
   const positions: number[] = [];
   const blades = 5 + Math.floor(rand() * 4);
@@ -505,13 +648,18 @@ export function buildWorld(worldWidth: number, worldDepth: number): { scene: Sce
   const cz = worldDepth / 2;
 
   for (let i = 0; i < 90; i++) {
-    let x = 2 + rand() * (worldWidth - 4);
-    let z = 2 + rand() * (worldDepth - 4);
+    const x = 2 + rand() * (worldWidth - 4);
+    const z = 2 + rand() * (worldDepth - 4);
     if (Math.hypot(x - cx, z - cz) < clearRadius) continue;
     const tree = makeTree(rand);
     tree.position.set(x, 0, z);
-    tree.scale.setScalar(0.85 + rand() * 0.35);
+    const s = 0.85 + rand() * 0.35;
+    tree.scale.setScalar(s);
     worldRoot.add(tree);
+    // Ground shadow disc beneath each tree
+    const shadow = makeGroundShadow(0.9 * s);
+    shadow.position.set(x, 0.003, z);
+    worldRoot.add(shadow);
   }
 
   for (let i = 0; i < 60; i++) {
@@ -527,6 +675,58 @@ export function buildWorld(worldWidth: number, worldDepth: number): { scene: Sce
     const x = rand() * worldWidth;
     const z = rand() * worldDepth;
     worldRoot.add(makeGrassClump(rand, x, z));
+  }
+
+  // Rocks scattered across the world
+  for (let i = 0; i < 70; i++) {
+    const x = rand() * worldWidth;
+    const z = rand() * worldDepth;
+    if (Math.hypot(x - cx, z - cz) < clearRadius * 0.5) continue;
+    const rock = makeRock(rand);
+    rock.position.set(x, 0, z);
+    worldRoot.add(rock);
+  }
+
+  // Flower beds — clusters of 6–10 blooms in a small area
+  for (let bed = 0; bed < 14; bed++) {
+    const bx = 3 + rand() * (worldWidth - 6);
+    const bz = 3 + rand() * (worldDepth - 6);
+    if (Math.hypot(bx - cx, bz - cz) < clearRadius) continue;
+    const count = 6 + Math.floor(rand() * 6);
+    for (let i = 0; i < count; i++) {
+      const flower = makeFlower(rand);
+      flower.position.set(bx + (rand() - 0.5) * 1.4, 0, bz + (rand() - 0.5) * 1.4);
+      worldRoot.add(flower);
+    }
+  }
+
+  // A few lamp posts as landmarks (in a rough grid so they read as park lighting)
+  const lampCoords: [number, number][] = [
+    [worldWidth * 0.2, worldDepth * 0.25],
+    [worldWidth * 0.78, worldDepth * 0.25],
+    [worldWidth * 0.2, worldDepth * 0.75],
+    [worldWidth * 0.78, worldDepth * 0.75],
+    [worldWidth * 0.5, worldDepth * 0.15],
+    [worldWidth * 0.5, worldDepth * 0.85],
+  ];
+  for (const [lx, lz] of lampCoords) {
+    const lamp = makeLampPost(rand);
+    lamp.position.set(lx, 0, lz);
+    lamp.rotation.y = rand() * Math.PI * 2;
+    worldRoot.add(lamp);
+  }
+
+  // A couple of park benches
+  const benchCoords: [number, number][] = [
+    [worldWidth * 0.3, worldDepth * 0.5],
+    [worldWidth * 0.7, worldDepth * 0.5],
+    [worldWidth * 0.5, worldDepth * 0.3],
+  ];
+  for (const [bx, bz] of benchCoords) {
+    if (Math.hypot(bx - cx, bz - cz) < clearRadius) continue;
+    const bench = makeBench(rand);
+    bench.position.set(bx, 0, bz);
+    worldRoot.add(bench);
   }
 
   const sun = outlinedMesh(new IcosahedronGeometry(0.6, 2), {
