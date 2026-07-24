@@ -77,12 +77,20 @@ function makeHead(): Group {
   headLines.position.y = HEAD_Y;
   g.add(headLines);
 
-  const hat = new Mesh(new CylinderGeometry(HEAD_R * 0.7, HEAD_R * 1.05, 0.16, 12), new MeshBasicMaterial({ color: new Color("#3a5a3a") }));
-  hat.position.y = HEAD_Y + HEAD_R * 0.85;
-  g.add(hat);
-  const brim = new Mesh(new CylinderGeometry(HEAD_R * 1.35, HEAD_R * 1.35, 0.02, 16), new MeshBasicMaterial({ color: new Color("#2f4a2f") }));
-  brim.position.y = HEAD_Y + HEAD_R * 0.6;
+  // Hat: brim disc sits at the top of the head, crown cylinder rises above it.
+  const brimY = HEAD_Y + HEAD_R * 0.55;
+  const brim = new Mesh(new CylinderGeometry(HEAD_R * 1.35, HEAD_R * 1.35, 0.02, 20), new MeshBasicMaterial({ color: new Color("#2f4a2f") }));
+  brim.position.y = brimY;
   g.add(brim);
+  const brimEdges = new EdgesGeometry(brim.geometry, 25);
+  const brimLines = new LineSegments(brimEdges, new LineBasicMaterial({ color: INK }));
+  brimLines.position.y = brimY;
+  g.add(brimLines);
+
+  const crownH = 0.18;
+  const hat = new Mesh(new CylinderGeometry(HEAD_R * 0.75, HEAD_R * 1.0, crownH, 14), new MeshBasicMaterial({ color: new Color("#3a5a3a") }));
+  hat.position.y = brimY + 0.01 + crownH / 2;
+  g.add(hat);
   const hatEdges = new EdgesGeometry(hat.geometry, 25);
   const hatLines = new LineSegments(hatEdges, new LineBasicMaterial({ color: INK }));
   hatLines.position.copy(hat.position);
