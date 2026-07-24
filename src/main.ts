@@ -86,6 +86,84 @@ window.addEventListener("keydown", (e) => {
   if (e.key === "Escape") closeInventory();
 });
 
+// Menu → cutscene → game. The game loop keeps running but input is gated
+// behind `gameActive` so nothing happens until the cutscene finishes.
+let gameActive = false;
+const menu = document.getElementById("menu-overlay");
+const cutscene = document.getElementById("cutscene-overlay");
+const cardstack = document.getElementById("cs-cardstack");
+const shutter = document.getElementById("cs-shutter");
+const caption = document.getElementById("cs-caption");
+
+const introCards = [
+  { name: "Park Cat", meta: "seen last Tuesday · 62%" },
+  { name: "Pigeon Council", meta: "sunday market · 78%" },
+  { name: "Comet Sparrow", meta: "1s window · 41%" },
+  { name: "Bench Sitter", meta: "morning fog · 88%" },
+];
+
+function buildIntroCards() {
+  if (!cardstack) return;
+  cardstack.innerHTML = "";
+  for (const c of introCards) {
+    const card = document.createElement("div");
+    card.className = "cs-card";
+    card.innerHTML = `
+      <div class="cs-thumb"></div>
+      <div class="cs-name">${c.name}</div>
+      <div class="cs-meta">${c.meta}</div>
+    `;
+    cardstack.appendChild(card);
+  }
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function playCutscene() {
+  if (!cutscene || !cardstack) return;
+  cutscene.classList.add("show");
+  buildIntroCards();
+  const cards = Array.from(cardstack.children) as HTMLElement[];
+  const captions = [
+    "Flipping through your camera…",
+    "…yesterday's park…",
+    "…a comet that stayed for a second…",
+    "…time to find more.",
+  ];
+  for (let i = 0; i < cards.length; i++) {
+    if (caption) caption.textContent = captions[i] ?? captions[captions.length - 1];
+    cards[i].classList.add("active");
+    await delay(950);
+    cards[i].classList.remove("active");
+  }
+  if (caption) caption.textContent = "";
+  shutter?.classList.add("fire");
+  await delay(280);
+  // Reveal the world under the shutter's flash peak
+  cutscene.classList.remove("show");
+  gameActive = true;
+  await delay(400);
+  shutter?.classList.remove("fire");
+}
+
+function startGame() {
+  if (!menu) return;
+  menu.classList.add("hidden");
+  const anyScreen = screen as unknown as { orientation?: { lock?: (o: string) => Promise<void> } };
+  anyScreen.orientation?.lock?.("landscape").catch(() => {});
+  playCutscene();
+}
+
+document.getElementById("menu-start")?.addEventListener("click", startGame);
+window.addEventListener("keydown", (e) => {
+  if (!gameActive && !menu?.classList.contains("hidden") && (e.key === "Enter" || e.key === " ")) {
+    startGame();
+    e.preventDefault();
+  }
+});
+
 let toastTimer = 0;
 function showToast(msg: string, ms = 2600) {
   const el = document.getElementById("toast");
@@ -103,9 +181,12 @@ const CAM_DISTANCE = 6.5;
 const CAM_HEIGHT = 3.4;
 const CAM_LOOK_HEIGHT = 1.3;
 
+const idleInput = { moveX: 0, moveZ: 0, cameraHeld: false, aimX: 0, aimY: 0, consumeSnap: () => false };
+
 function update(dt: number) {
   state.time += dt;
-  updatePlayer(state.player, state.input, dt, bounds);
+  // While the menu/cutscene is up, freeze the player and skip snapshot logic.
+  updatePlayer(state.player, gameActive ? state.input : idleInput, dt, bounds);
   updateSmudges(state.smudges, state.time);
   updatePond(state.pond, state.time);
   updateFish(state.fish, state.time);
@@ -127,13 +208,13 @@ function update(dt: number) {
   camera.position.y += (targetY - camera.position.y) * k;
   camera.lookAt(p.worldX, CAM_LOOK_HEIGHT, p.worldZ);
 
-  if (state.player.cameraRaised) {
+  if (gameActive && state.player.cameraRaised) {
     drawViewfinder(state, window.innerWidth, window.innerHeight);
   } else {
     hideViewfinder();
   }
 
-  if (state.input.consumeSnap() && state.player.cameraRaised) {
+  if (gameActive && state.input.consumeSnap() && state.player.cameraRaised) {
     const shot = tryTakePhoto(state);
     if (shot) {
       const result = addSnapshot(shot);
