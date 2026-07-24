@@ -1,78 +1,127 @@
 import {
-  BufferGeometry,
-  CircleGeometry,
+  BoxGeometry,
+  CapsuleGeometry,
   Color,
+  CylinderGeometry,
   EdgesGeometry,
-  Float32BufferAttribute,
   Group,
-  Line,
   LineBasicMaterial,
   LineSegments,
   Mesh,
   MeshBasicMaterial,
-  Vector3,
+  SphereGeometry,
 } from "three";
 import type { InputState, Player } from "./types.ts";
 
 const INK = new Color("#1a1a1a");
-const PAPER = new Color("#f4efe6");
-const WALK_SPEED = 4.4;
+const CAMERA_TAN = new Color("#8b6b45");
+const WALK_SPEED = 4.6;
 
-const HEAD_R = 0.18;
-const HEAD_Y = 1.72;
-const NECK_Y = 1.54;
-const SHOULDER_Y = 1.42;
-const HIP_Y = 1.0;
-const LIMB_LEN = 0.55;
+const HEAD_R = 0.19;
+const HEAD_Y = 1.66;
+const SHOULDER_Y = 1.36;
+const HIP_Y = 0.92;
+const LIMB_LEN = 0.5;
+const LIMB_R = 0.055;
 
-function lineFrom(points: Vector3[], color = INK): Line {
-  const pos: number[] = [];
-  for (const p of points) pos.push(p.x, p.y, p.z);
-  const g = new BufferGeometry();
-  g.setAttribute("position", new Float32BufferAttribute(pos, 3));
-  return new Line(g, new LineBasicMaterial({ color }));
-}
-
+// A dark capsule limb built inside a Group so rotating the group swings the
+// whole limb around the shoulder/hip joint at the group's origin.
 function makeLimb(): Group {
   const g = new Group();
-  const line = lineFrom([new Vector3(0, 0, 0), new Vector3(0, -LIMB_LEN, 0)]);
-  g.add(line);
+  const geo = new CapsuleGeometry(LIMB_R, LIMB_LEN, 3, 8);
+  const mesh = new Mesh(geo, new MeshBasicMaterial({ color: INK }));
+  mesh.position.y = -LIMB_LEN / 2 - LIMB_R;
+  g.add(mesh);
   return g;
-}
-
-function boxGeometry(w: number, h: number, d: number) {
-  const geo = new BufferGeometry();
-  const hw = w / 2, hh = h / 2, hd = d / 2;
-  const verts = new Float32Array([
-    -hw, -hh, -hd,  hw, -hh, -hd,  hw,  hh, -hd,  -hw,  hh, -hd,
-    -hw, -hh,  hd,  hw, -hh,  hd,  hw,  hh,  hd,  -hw,  hh,  hd,
-  ]);
-  const indices = [
-    0, 1, 2,  0, 2, 3,
-    4, 6, 5,  4, 7, 6,
-    0, 4, 5,  0, 5, 1,
-    2, 6, 7,  2, 7, 3,
-    1, 5, 6,  1, 6, 2,
-    0, 3, 7,  0, 7, 4,
-  ];
-  geo.setAttribute("position", new Float32BufferAttribute(verts, 3));
-  geo.setIndex(indices);
-  return geo;
 }
 
 function makeCamera(): Group {
   const g = new Group();
-  const w = 0.16;
-  const h = 0.1;
-  const d = 0.08;
-  const edges = new EdgesGeometry(boxGeometry(w, h, d));
+  const w = 0.22, h = 0.14, d = 0.11;
+  const body = new Mesh(new BoxGeometry(w, h, d), new MeshBasicMaterial({ color: CAMERA_TAN }));
+  g.add(body);
+  const edges = new EdgesGeometry(body.geometry, 30);
   g.add(new LineSegments(edges, new LineBasicMaterial({ color: INK })));
-  const lens = new Mesh(
-    new CircleGeometry(0.03, 16),
+
+  const lensR = 0.045;
+  const lensBody = new Mesh(new CylinderGeometry(lensR, lensR, 0.04, 20), new MeshBasicMaterial({ color: INK }));
+  lensBody.rotation.x = Math.PI / 2;
+  lensBody.position.set(0, 0, d / 2 + 0.02);
+  g.add(lensBody);
+
+  // Little viewfinder bump on top
+  const vf = new Mesh(new BoxGeometry(0.06, 0.04, 0.06), new MeshBasicMaterial({ color: CAMERA_TAN }));
+  vf.position.set(-w * 0.25, h / 2 + 0.02, 0);
+  g.add(vf);
+  const vfEdges = new EdgesGeometry(vf.geometry, 30);
+  const vfLines = new LineSegments(vfEdges, new LineBasicMaterial({ color: INK }));
+  vfLines.position.copy(vf.position);
+  g.add(vfLines);
+
+  // Shutter button
+  const shutter = new Mesh(new CylinderGeometry(0.015, 0.015, 0.02, 8), new MeshBasicMaterial({ color: new Color("#3a2a1a") }));
+  shutter.position.set(w * 0.35, h / 2 + 0.012, 0);
+  g.add(shutter);
+  return g;
+}
+
+// Head — a small sphere with a hat cone on top. Facing direction is the local
+// +Z so it turns with the player's yaw.
+function makeHead(): Group {
+  const g = new Group();
+  const head = new Mesh(new SphereGeometry(HEAD_R, 16, 12), new MeshBasicMaterial({ color: new Color("#f0e6d2") }));
+  head.position.y = HEAD_Y;
+  g.add(head);
+  const headEdges = new EdgesGeometry(head.geometry, 25);
+  const headLines = new LineSegments(headEdges, new LineBasicMaterial({ color: INK, transparent: true, opacity: 0.6 }));
+  headLines.position.y = HEAD_Y;
+  g.add(headLines);
+
+  // Hat: brim disc sits at the top of the head, crown cylinder rises above it.
+  const brimY = HEAD_Y + HEAD_R * 0.55;
+  const brim = new Mesh(new CylinderGeometry(HEAD_R * 1.35, HEAD_R * 1.35, 0.02, 20), new MeshBasicMaterial({ color: new Color("#2f4a2f") }));
+  brim.position.y = brimY;
+  g.add(brim);
+  const brimEdges = new EdgesGeometry(brim.geometry, 25);
+  const brimLines = new LineSegments(brimEdges, new LineBasicMaterial({ color: INK }));
+  brimLines.position.y = brimY;
+  g.add(brimLines);
+
+  const crownH = 0.18;
+  const hat = new Mesh(new CylinderGeometry(HEAD_R * 0.75, HEAD_R * 1.0, crownH, 14), new MeshBasicMaterial({ color: new Color("#3a5a3a") }));
+  hat.position.y = brimY + 0.01 + crownH / 2;
+  g.add(hat);
+  const hatEdges = new EdgesGeometry(hat.geometry, 25);
+  const hatLines = new LineSegments(hatEdges, new LineBasicMaterial({ color: INK }));
+  hatLines.position.copy(hat.position);
+  g.add(hatLines);
+  return g;
+}
+
+function makeTorso(): Group {
+  const g = new Group();
+  // Slim shirt from shoulders to hips
+  const torso = new Mesh(
+    new CapsuleGeometry(0.14, HIP_Y * 0 + (SHOULDER_Y - HIP_Y) * 0.75, 3, 8),
+    new MeshBasicMaterial({ color: new Color("#c2b48a") })
+  );
+  torso.position.y = (SHOULDER_Y + HIP_Y) / 2;
+  torso.scale.set(1.05, 1, 0.65);
+  g.add(torso);
+  const edges = new EdgesGeometry(torso.geometry, 25);
+  const lines = new LineSegments(edges, new LineBasicMaterial({ color: INK, transparent: true, opacity: 0.75 }));
+  lines.position.copy(torso.position);
+  lines.scale.copy(torso.scale);
+  g.add(lines);
+
+  // Camera strap — a dark band across the shoulders
+  const strap = new Mesh(
+    new CylinderGeometry(0.015, 0.015, 0.28, 6),
     new MeshBasicMaterial({ color: INK })
   );
-  lens.position.set(0, 0, d / 2 + 0.001);
-  g.add(lens);
+  strap.rotation.z = Math.PI / 2;
+  strap.position.set(0, SHOULDER_Y - 0.02, 0.09);
+  g.add(strap);
   return g;
 }
 
@@ -80,45 +129,27 @@ export function createPlayer(startX: number, startZ: number): Player {
   const root = new Group();
   root.position.set(startX, 0, startZ);
 
-  const head = new Mesh(new CircleGeometry(HEAD_R, 24), new MeshBasicMaterial({ color: PAPER }));
-  head.position.y = HEAD_Y;
-  root.add(head);
-
-  const headOutlinePts: Vector3[] = [];
-  const segs = 32;
-  for (let i = 0; i <= segs; i++) {
-    const a = (i / segs) * Math.PI * 2;
-    headOutlinePts.push(new Vector3(Math.cos(a) * HEAD_R, HEAD_Y + Math.sin(a) * HEAD_R, 0));
-  }
-  root.add(lineFrom(headOutlinePts));
-
-  root.add(lineFrom([new Vector3(0, NECK_Y, 0), new Vector3(0, HIP_Y, 0)]));
-
-  const strap = lineFrom([
-    new Vector3(-0.09, NECK_Y - 0.02, 0),
-    new Vector3(0, SHOULDER_Y - 0.05, 0.04),
-    new Vector3(0.09, NECK_Y - 0.02, 0),
-  ]);
-  root.add(strap);
+  root.add(makeHead());
+  root.add(makeTorso());
 
   const cameraProp = makeCamera();
-  cameraProp.position.set(0, SHOULDER_Y - 0.12, 0.06);
+  cameraProp.position.set(0, SHOULDER_Y - 0.16, 0.13);
   root.add(cameraProp);
 
   const leftArm = makeLimb();
-  leftArm.position.set(-0.001, SHOULDER_Y, 0);
+  leftArm.position.set(-0.15, SHOULDER_Y, 0);
   root.add(leftArm);
 
   const rightArm = makeLimb();
-  rightArm.position.set(0.001, SHOULDER_Y, 0);
+  rightArm.position.set(0.15, SHOULDER_Y, 0);
   root.add(rightArm);
 
   const leftLeg = makeLimb();
-  leftLeg.position.set(-0.04, HIP_Y, 0);
+  leftLeg.position.set(-0.08, HIP_Y, 0);
   root.add(leftLeg);
 
   const rightLeg = makeLimb();
-  rightLeg.position.set(0.04, HIP_Y, 0);
+  rightLeg.position.set(0.08, HIP_Y, 0);
   root.add(rightLeg);
 
   return {
@@ -159,10 +190,7 @@ export function updatePlayer(p: Player, input: InputState, dt: number, bounds: W
     p.worldX = Math.max(bounds.minX, Math.min(bounds.maxX, p.worldX));
     p.worldZ = Math.max(bounds.minZ, Math.min(bounds.maxZ, p.worldZ));
 
-    // Face movement direction. Yaw 0 = facing +X. Player faces atan2(mx, mz)
-    // so that mz=-1 (forward W) makes the player face away from the camera.
     const targetYaw = Math.atan2(mx, mz) + Math.PI;
-    // Shortest-arc rotate toward target
     let diff = ((targetYaw - p.yaw + Math.PI) % (Math.PI * 2)) - Math.PI;
     if (diff < -Math.PI) diff += Math.PI * 2;
     p.yaw += diff * Math.min(1, dt * 12);
@@ -178,20 +206,20 @@ export function updatePlayer(p: Player, input: InputState, dt: number, bounds: W
   p.leftLeg.rotation.x = swing * legAmp;
   p.rightLeg.rotation.x = -swing * legAmp;
 
-  const armAmp = 0.35;
+  const armAmp = 0.4;
   if (p.cameraRaised) {
-    p.leftArm.rotation.x = -1.3;
-    p.rightArm.rotation.x = -1.3;
-    p.leftArm.rotation.z = 0.15;
-    p.rightArm.rotation.z = -0.15;
-    p.cameraProp.position.set(0, HEAD_Y - 0.1, 0.12);
+    p.leftArm.rotation.x = -1.35;
+    p.rightArm.rotation.x = -1.35;
+    p.leftArm.rotation.z = 0.18;
+    p.rightArm.rotation.z = -0.18;
+    p.cameraProp.position.set(0, HEAD_Y - 0.06, 0.18);
     p.cameraProp.rotation.set(0, 0, 0);
   } else {
     p.leftArm.rotation.x = -swing * armAmp;
     p.rightArm.rotation.x = swing * armAmp;
     p.leftArm.rotation.z = 0;
     p.rightArm.rotation.z = 0;
-    p.cameraProp.position.set(0, SHOULDER_Y - 0.12, 0.06);
+    p.cameraProp.position.set(0, SHOULDER_Y - 0.16, 0.13);
     p.cameraProp.rotation.set(0, 0, 0);
   }
 }
