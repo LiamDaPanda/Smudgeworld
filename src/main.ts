@@ -4,7 +4,7 @@ import { buildWorld } from "./world.ts";
 import { createPlayer, updatePlayer } from "./player.ts";
 import { attachSmudges, createSmudges, updateSmudges } from "./smudges.ts";
 import { drawViewfinder, hideViewfinder, tryTakePhoto } from "./camera.ts";
-import { addSnapshot, renderLibrary } from "./library.ts";
+import { addSnapshot, closeInventory, openInventory, renderLibrary } from "./library.ts";
 import type { GameState } from "./types.ts";
 
 const canvas = document.getElementById("game") as HTMLCanvasElement;
@@ -62,6 +62,26 @@ function updateHud(s: GameState) {
 updateHud(state);
 renderLibrary();
 
+document.getElementById("inv-toggle")?.addEventListener("click", openInventory);
+document.getElementById("inv-close")?.addEventListener("click", closeInventory);
+document.getElementById("inventory-modal")?.addEventListener("click", (e) => {
+  if (e.target === e.currentTarget) closeInventory();
+});
+window.addEventListener("keydown", (e) => {
+  if (e.key === "i" || e.key === "I") openInventory();
+  if (e.key === "Escape") closeInventory();
+});
+
+let toastTimer = 0;
+function showToast(msg: string, ms = 2600) {
+  const el = document.getElementById("toast");
+  if (!el) return;
+  el.textContent = msg;
+  el.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = window.setTimeout(() => el.classList.remove("show"), ms);
+}
+
 // Third-person follow: camera sits behind the player relative to their yaw,
 // slightly elevated, looking down at head height. When they turn, the camera
 // smoothly swings around to stay behind.
@@ -99,11 +119,20 @@ function update(dt: number) {
   if (state.input.consumeSnap() && state.player.cameraRaised) {
     const shot = tryTakePhoto(state);
     if (shot) {
-      addSnapshot(shot);
+      const result = addSnapshot(shot);
       state.snapshotCount += 1;
       state.coins += Math.round(shot.clarity * 10);
-      updateHud(state);
       shutterFlash();
+
+      if (result.completedSet) {
+        state.coins += result.reward;
+        showToast(`Set complete: ${result.completedSet.name} · +${result.reward} coins`, 3400);
+      } else if (result.newSubject) {
+        showToast(`New: ${shot.subjectName} · ${Math.round(shot.clarity * 100)}%`);
+      } else if (result.improvedBest) {
+        showToast(`Better shot of ${shot.subjectName} · ${Math.round(shot.clarity * 100)}%`);
+      }
+      updateHud(state);
     }
   }
 }
