@@ -5,6 +5,7 @@ import { createPlayer, updatePlayer } from "./player.ts";
 import { attachSmudges, createSmudges, updateSmudges } from "./smudges.ts";
 import { drawViewfinder, hideViewfinder, tryTakePhoto } from "./camera.ts";
 import { addSnapshot, closeInventory, openInventory, renderLibrary } from "./library.ts";
+import { createFish, createPond, createWaterfall, updateFish, updatePond, updateWaterfall } from "./water.ts";
 import type { GameState } from "./types.ts";
 
 const canvas = document.getElementById("game") as HTMLCanvasElement;
@@ -35,6 +36,16 @@ worldRoot.add(player.root);
 const smudges = createSmudges(worldWidth, worldDepth);
 attachSmudges(smudges, worldRoot);
 
+// Water feature: pond near the north edge with a waterfall behind it and a
+// few fish drifting on the surface.
+const pondCx = worldWidth * 0.72;
+const pondCz = worldDepth * 0.28;
+const pond = createPond(pondCx, pondCz, 3.8);
+worldRoot.add(pond.group);
+const waterfall = createWaterfall(pondCx, pondCz - 3.5, 3.2, 3.6);
+worldRoot.add(waterfall.group);
+const fish = createFish(pond, 4);
+
 const input = createInput(canvas);
 
 const state: GameState = {
@@ -45,6 +56,9 @@ const state: GameState = {
   worldRoot,
   player,
   smudges,
+  pond,
+  fish,
+  waterfall,
   input,
   time: 0,
   coins: 0,
@@ -93,6 +107,9 @@ function update(dt: number) {
   state.time += dt;
   updatePlayer(state.player, state.input, dt, bounds);
   updateSmudges(state.smudges, state.time);
+  updatePond(state.pond, state.time);
+  updateFish(state.fish, state.time);
+  updateWaterfall(state.waterfall, state.time);
 
   const p = state.player;
   // "Behind" the player means opposite of the direction they're facing.

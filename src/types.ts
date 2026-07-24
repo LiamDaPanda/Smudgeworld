@@ -1,4 +1,5 @@
 import type { PerspectiveCamera, Scene, Group, Vector3 } from "three";
+import type { Fish, Pond, Waterfall } from "./water.ts";
 
 export interface InputState {
   moveX: number; // -1 (left/west) to +1 (right/east)
@@ -44,6 +45,9 @@ export interface GameState {
   worldRoot: Group;
   player: Player;
   smudges: Smudge[];
+  pond: Pond;
+  fish: Fish[];
+  waterfall: Waterfall;
   input: InputState;
   time: number;
   coins: number;
