@@ -1,6 +1,11 @@
 import { PerspectiveCamera, WebGLRenderer } from "three";
 import { createInput } from "./input.ts";
 import { buildWorld, sampleGroundHeight, updateAtmosphere } from "./world.ts";
+import { clockString, nightAmount, phaseName, setTimeOfDay, updateDayNight } from "./daynight.ts";
+import {
+  initAudio, isMuted, playLevelUp, playNearby, playSetComplete,
+  playSuccess, playUiTick, toggleMute, updateAudio, updateFootsteps,
+} from "./audio.ts";
 import { createPlayer, updatePlayer } from "./player.ts";
 import { attachSmudges, createSmudges, updateSmudges } from "./smudges.ts";
 import { hideViewfinder } from "./camera.ts";
@@ -33,7 +38,8 @@ window.addEventListener("resize", resize);
 
 const worldWidth = 60;
 const worldDepth = 40;
-const { scene, worldRoot } = buildWorld(worldWidth, worldDepth);
+const world = buildWorld(worldWidth, worldDepth);
+const { scene, worldRoot } = world;
 const player = createPlayer(worldWidth / 2, worldDepth / 2);
 worldRoot.add(player.root);
 
@@ -134,12 +140,44 @@ renderLibrary();
       rgba(0,0,0,0) 55%, rgba(43,38,28,0.18) 100%);
   `;
   document.body.appendChild(vignette);
+
+  // Night colour grade. Much of the world (ground, path, grass patches, ink
+  // splatters) uses MeshBasicMaterial and so ignores scene lights entirely —
+  // a multiply tint over the canvas is what actually sells nightfall, and it
+  // grades every layer uniformly.
+  const nightTint = document.createElement("div");
+  nightTint.id = "night-tint";
+  nightTint.style.cssText = `
+    position: fixed; inset: 0; z-index: 3; pointer-events: none;
+    background: #2c3a5c;
+    mix-blend-mode: multiply;
+    opacity: 0;
+  `;
+  document.body.appendChild(nightTint);
 })();
+
+const nightTintEl = document.getElementById("night-tint");
+function updateNightGrade(night: number) {
+  if (nightTintEl) nightTintEl.style.opacity = String(night * 0.72);
+}
 
 document.getElementById("inv-toggle")?.addEventListener("click", () => {
   document.getElementById("inv-toggle")?.classList.remove("has-new");
+  playUiTick();
   openInventory();
 });
+
+// Mute toggle — reflects state in the chip label.
+const muteBtn = document.getElementById("mute-toggle");
+function paintMuteBtn() {
+  if (muteBtn) muteBtn.textContent = isMuted() ? "Sound off" : "Sound on";
+}
+muteBtn?.addEventListener("click", () => {
+  toggleMute();
+  paintMuteBtn();
+  playUiTick();
+});
+paintMuteBtn();
 document.getElementById("inv-close")?.addEventListener("click", closeInventory);
 document.getElementById("inventory-modal")?.addEventListener("click", (e) => {
   if (e.target === e.currentTarget) closeInventory();
@@ -213,6 +251,10 @@ async function playCutscene() {
 
 function startGame() {
   if (!menu) return;
+  // Browsers only allow an AudioContext to start from a user gesture, so the
+  // ENTER press is where the whole sound graph comes to life.
+  initAudio();
+  playUiTick();
   menu.classList.add("hidden");
   const anyScreen = screen as unknown as { orientation?: { lock?: (o: string) => Promise<void> } };
   anyScreen.orientation?.lock?.("landscape").catch(() => {});
@@ -352,6 +394,18 @@ function markCollectionNew() {
   document.getElementById("inv-toggle")?.classList.add("has-new");
 }
 
+let lastClockText = "";
+function updateClockHud() {
+  const el = document.getElementById("clock-val");
+  if (!el) return;
+  const text = `${clockString()} · ${phaseName()}`;
+  if (text !== lastClockText) {
+    lastClockText = text;
+    el.textContent = text;
+    document.getElementById("clock-chip")?.classList.toggle("is-night", nightAmount() > 0.5);
+  }
+}
+
 // Proximity to smudges — updated each frame so the prompt tracks the nearest.
 const PROX_RADIUS = 3.5;
 let nearestSmudge: Smudge | null = null;
@@ -375,6 +429,7 @@ function updateProximity() {
     if (best && !isPhotoModeActive()) {
       prompt?.classList.add("show");
       if (promptName) promptName.textContent = "A blurry figure";
+      playNearby();
     } else {
       prompt?.classList.remove("show");
     }
@@ -396,14 +451,18 @@ function launchPhotoIfPossible() {
     xp += Math.round(shot.clarity * 20) + (result.newSubject ? 15 : 0);
     if (result.completedSet) {
       showToast(`Set complete: ${result.completedSet.name} · +${result.reward} coins`, 3400);
+      playSetComplete();
     } else if (result.newSubject) {
       showToast(`New: ${shot.subjectName} · ${Math.round(shot.clarity * 100)}%`);
       markCollectionNew();
+      playSuccess();
     } else if (result.improvedBest) {
       showToast(`Better shot of ${shot.subjectName} · ${Math.round(shot.clarity * 100)}%`);
+      playSuccess();
     }
     if (levelFromXp(xp) > prevLevel) {
       showToast(`Photographer level ${levelFromXp(xp)}!`, 3000);
+      playLevelUp();
     }
     coinPop(coinGain);
     updateHud(state);
@@ -423,6 +482,7 @@ document.getElementById("prox-btn")?.addEventListener("click", launchPhotoIfPoss
     state.player.worldZ = s.worldPos.z + 1;
   },
   startPhoto: (i = 0) => startPhotoMode(state.smudges[i], () => {}),
+  setTime: (t: number) => setTimeOfDay(t),
 };
 window.addEventListener("keydown", (e) => {
   if ((e.key === "e" || e.key === "E") && gameActive && !isPhotoModeActive() && nearestSmudge) {
@@ -439,11 +499,26 @@ function update(dt: number) {
   // Follow terrain height (currently returns 0; kept for future terrain work)
   const y = sampleGroundHeight(state.player.worldX, state.player.worldZ);
   if (state.player.root.position.y !== y) state.player.root.position.y = y;
-  updateSmudges(state.smudges, state.time);
+  updateDayNight(dt, world, state.worldWidth, state.worldDepth);
+  const night = nightAmount();
+  updateSmudges(state.smudges, state.time, night);
   updatePond(state.pond, state.time);
   updateFish(state.fish, state.time);
   updateWaterfall(state.waterfall, state.time);
   updateAtmosphere(dt, state.time);
+  updateClockHud();
+  updateNightGrade(night);
+
+  // Ambience: pond bed by distance, footsteps in time with the stride.
+  const pondDist = Math.hypot(
+    state.player.worldX - state.pond.center[0],
+    state.player.worldZ - state.pond.center[1]
+  ) - state.pond.radius;
+  const isWalking = gameActive && !isPhotoModeActive()
+    && Math.hypot(state.input.moveX, state.input.moveZ) > 0.05;
+  const strideHz = state.input.sprint ? 3.1 : 2.0;
+  updateAudio(dt, { waterDistance: Math.max(0, pondDist), walking: isWalking, strideHz, night });
+  updateFootsteps(dt, isWalking, strideHz);
   if (gameActive && !isPhotoModeActive()) updateProximity();
   else if (isPhotoModeActive()) {
     // hide prompt during photo mode

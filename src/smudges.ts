@@ -123,6 +123,9 @@ export function createSmudges(worldWidth: number, worldDepth: number): Smudge[] 
       sprite,
       indicator: ring,
       captured: false,
+      homeX: x,
+      homeZ: z,
+      wanderRadius: 0.7 + r() * 0.8,
       name: NAMES_COMMON[i % NAMES_COMMON.length],
       set: "Park Life",
     });
@@ -147,6 +150,9 @@ export function createSmudges(worldWidth: number, worldDepth: number): Smudge[] 
       sprite,
       indicator: ring,
       captured: false,
+      homeX: x,
+      homeZ: z,
+      wanderRadius: 1.1 + r() * 0.9, // night subjects roam a bit wider
       timedWindow: { start: 0, end: 0 },
       name: NAMES_TIMED[i % NAMES_TIMED.length],
       set: "After Dark",
@@ -165,12 +171,16 @@ export function attachSmudges(smudges: Smudge[], worldRoot: Group) {
 const capturedColor = new Color("#4a7048");
 const activeColor = new Color("#4a463d");
 
-export function updateSmudges(smudges: Smudge[], time: number) {
+export function updateSmudges(smudges: Smudge[], time: number, night = 0) {
   for (const s of smudges) {
     if (s.kind === "timed") {
+      // "After Dark" subjects only exist at night, and even then they blink
+      // in and out on a short cycle — you have to be there at the right hour
+      // AND catch the one-second window.
+      const isDark = night > 0.5;
       const cycle = 6;
       const phase = ((time + s.wobbleSeed) % cycle) / cycle;
-      if (phase > 0.9) {
+      if (isDark && phase > 0.9) {
         const start = time - (phase - 0.9) * cycle;
         s.timedWindow = { start, end: start + 1 };
         s.visible = true;
@@ -180,6 +190,16 @@ export function updateSmudges(smudges: Smudge[], time: number) {
       s.sprite.visible = s.visible;
       if (s.indicator) s.indicator.visible = s.visible;
     }
+
+    // Wander: drift around the home point on a slow lissajous so subjects
+    // feel alive rather than pinned to a spot.
+    const t = time * 0.35 + s.wobbleSeed;
+    const driftX = Math.sin(t) * s.wanderRadius + Math.sin(t * 0.43) * s.wanderRadius * 0.4;
+    const driftZ = Math.cos(t * 0.82) * s.wanderRadius + Math.cos(t * 0.31) * s.wanderRadius * 0.4;
+    s.worldPos.x = s.homeX + driftX;
+    s.worldPos.z = s.homeZ + driftZ;
+    if (s.indicator) s.indicator.position.set(s.worldPos.x, 0.02, s.worldPos.z);
+
     // Idle wobble
     const wobble = Math.sin(time * 2 + s.wobbleSeed) * 0.05;
     s.sprite.position.set(s.worldPos.x, s.worldPos.y + wobble, s.worldPos.z);

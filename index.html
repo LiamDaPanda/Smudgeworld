@@ -145,7 +145,7 @@
       #rotate-overlay p { margin: 0; opacity: 0.65; font-style: italic; font-size: 15px; }
 
       /* Inventory button lives next to the HUD counters */
-      #inv-toggle {
+      #inv-toggle, #mute-toggle {
         pointer-events: auto;
         margin-top: 6px;
         border: 1px solid #2b2b2b;
@@ -155,7 +155,14 @@
         padding: 4px 10px; cursor: pointer;
         box-shadow: 1px 1px 0 #2b2b2b;
       }
-      #inv-toggle:hover { background: rgba(43,43,43,0.85); color: #f4efe6; }
+      #inv-toggle:hover, #mute-toggle:hover { background: rgba(43,43,43,0.85); color: #f4efe6; }
+      #mute-toggle { margin-top: 4px; font-size: 11px; opacity: 0.85; }
+      /* At night the clock chip inverts so the HUD stays legible on dark sky */
+      #clock-chip.is-night {
+        background: rgba(30,34,48,0.7);
+        border-color: rgba(244,239,230,0.55);
+        color: #eae6da;
+      }
 
       /* Inventory modal */
       #inventory-modal {
@@ -618,11 +625,16 @@
           <span>Lv <span id="level-val">1</span></span>
         </div>
         <div id="xp-bar"><div class="fill" id="xp-fill"></div></div>
+        <div class="hud-chip" id="clock-chip">
+          <svg viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="4.6" fill="none" stroke="currentColor" stroke-width="0.9"/><path d="M6 3.2 V6 L8 7.2" fill="none" stroke="currentColor" stroke-width="0.9" stroke-linecap="round"/></svg>
+          <span id="clock-val">08:38 · Day</span>
+        </div>
         <div id="progress-bar">
           <div class="label"><span id="pb-name">Park Life</span><span id="pb-count">0/5</span></div>
           <div class="track"><div class="fill" id="pb-fill"></div></div>
         </div>
         <button id="inv-toggle" type="button">Collection</button>
+        <button id="mute-toggle" type="button">Sound on</button>
       </div>
     </div>
     <div id="prox-prompt">

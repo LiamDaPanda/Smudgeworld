@@ -37,6 +37,10 @@ export interface Smudge {
   sprite: Group;
   indicator?: import("three").Mesh;
   captured: boolean;
+  // Wander: subjects drift around this home point rather than sitting still.
+  homeX: number;
+  homeZ: number;
+  wanderRadius: number;
   timedWindow?: { start: number; end: number };
   name: string;
   set: string;
