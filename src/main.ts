@@ -1,7 +1,12 @@
 import { PerspectiveCamera, WebGLRenderer } from "three";
 import { createInput } from "./input.ts";
 import { buildWorld, sampleGroundHeight, updateAtmosphere } from "./world.ts";
-import { clockString, nightAmount, phaseName, setTimeOfDay, updateDayNight } from "./daynight.ts";
+import {
+  clockString, nightAmount, phaseName, registerCelestials, setTimeOfDay, updateDayNight,
+} from "./daynight.ts";
+import { createMoon, createSun } from "./celestial.ts";
+import { createMountain, updateMountain } from "./mountain.ts";
+import { attachPedestrians, createPedestrians, updatePedestrians } from "./npc.ts";
 import {
   initAudio, isMuted, playLevelUp, playNearby, playSetComplete,
   playSuccess, playUiTick, toggleMute, updateAudio, updateFootsteps,
@@ -61,9 +66,32 @@ attachSmudges(smudges, worldRoot);
 
 const pond = createPond(pondCx, pondCz, pondRadius);
 worldRoot.add(pond.group);
+
+// The massif goes in before the waterfall so the cliff wall sits behind the
+// falling water rather than in front of it.
+const mountain = createMountain(pondCx, pondCz - 4.6, 3.2, 3.6);
+worldRoot.add(mountain.group);
+
 const waterfall = createWaterfall(pondCx, pondCz - 3.5, 3.2, 3.6);
 worldRoot.add(waterfall.group);
 const fish = createFish(pond, 4);
+
+// Sun and moon bodies, mounted on the rigs buildWorld created.
+const sunBody = createSun();
+world.sunDisc.add(sunBody.group);
+const moonBody = createMoon();
+world.moonDisc.add(moonBody.group);
+registerCelestials(sunBody, moonBody);
+
+// Pedestrians: routes avoid solids and the pond, so nobody strolls into a
+// tree or across the water.
+const pedestrians = createPedestrians(worldWidth, worldDepth, 9, (x, z) => {
+  for (const c of world.colliders) {
+    if (Math.hypot(x - c.x, z - c.z) < c.r + 1.0) return false;
+  }
+  return true;
+});
+attachPedestrians(pedestrians, worldRoot);
 
 const input = createInput(canvas);
 
@@ -603,6 +631,10 @@ document.getElementById("prox-btn")?.addEventListener("click", launchPhotoIfPoss
   startPhoto: (i = 0) => startPhotoMode(state.smudges[i], () => {}),
   setTime: (t: number) => setTimeOfDay(t),
   smudgeNames: () => state.smudges.map((s) => s.name),
+  sky: () => ({
+    sunY: world.sunDisc.position.y, sunVis: sunBody.group.visible,
+    moonY: world.moonDisc.position.y, moonVis: moonBody.group.visible,
+  }),
   addCoins: (n: number) => { state.coins += n; updateHud(state); renderShop(); },
   boom: () => Math.hypot(
     camera.position.x - state.player.worldX,
@@ -637,6 +669,8 @@ function update(dt: number) {
   updatePond(state.pond, state.time);
   updateFish(state.fish, state.time);
   updateWaterfall(state.waterfall, state.time);
+  updateMountain(mountain, state.time);
+  updatePedestrians(pedestrians, dt);
   updateAtmosphere(dt, state.time);
   updateClockHud();
   updateNightGrade(night);

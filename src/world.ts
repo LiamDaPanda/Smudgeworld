@@ -1085,6 +1085,7 @@ export interface WorldHandles {
   fog: Fog;
   stars: Points;
   sunDisc: Group;
+  moonDisc: Group;
   colliders: Collider[];
 }
 
@@ -1345,36 +1346,26 @@ export function buildWorld(worldWidth: number, worldDepth: number): WorldHandles
     worldRoot.add(shadow);
   }
 
-  const sunDisc = outlinedMesh(new IcosahedronGeometry(0.6, 2), {
-    fill: new Color("#f5e3b3"),
-    edgeThreshold: 25,
-  });
-  sunDisc.position.set(worldWidth / 2, 10, -35);
+  // Sun and moon are built in celestial.ts and positioned by the day/night
+  // cycle; buildWorld just makes the mount points.
+  const sunDisc = new Group();
   worldRoot.add(sunDisc);
-
-  // Hand-drawn sun rays: short ink dashes radiating from the disc, with gaps,
-  // like a child's drawing of a sun.
-  const rayPos: number[] = [];
-  for (let i = 0; i < 12; i++) {
-    const a = (i / 12) * Math.PI * 2 + 0.15;
-    const r0 = 1.1 + (i % 2) * 0.25;
-    const r1 = r0 + 0.7 + (i % 3) * 0.2;
-    rayPos.push(
-      worldWidth / 2 + Math.cos(a) * r0, 10 + Math.sin(a) * r0, -35,
-      worldWidth / 2 + Math.cos(a) * r1, 10 + Math.sin(a) * r1, -35
-    );
-  }
-  const rayGeo = new BufferGeometry();
-  rayGeo.setAttribute("position", new Float32BufferAttribute(rayPos, 3));
-  worldRoot.add(new LineSegments(rayGeo, new LineBasicMaterial({ color: new Color("#c9a94a"), transparent: true, opacity: 0.7 })));
+  const moonDisc = new Group();
+  worldRoot.add(moonDisc);
 
   void new Vector3();
   void makeHillRing;
 
-  // The pond and the waterfall outcrop are solid too — you walk around water,
-  // not across it.
+  // The pond is solid — you walk around water, not across it.
   colliders.push({ x: pondCenter.x, z: pondCenter.z, r: pondCenter.radius * 0.92 });
-  colliders.push({ x: pondCenter.x, z: pondCenter.z - 3.5, r: 2.6 });
 
-  return { scene, worldRoot, sun, fill, ambient, fog, stars, sunDisc, colliders };
+  // The cliff the waterfall comes down is a wide wall, not a single boulder,
+  // so it needs a row of colliders across its face rather than one circle.
+  const cliffZ = pondCenter.z - 4.6;
+  const cliffHalfWidth = 5.4;
+  for (let i = -2; i <= 2; i++) {
+    colliders.push({ x: pondCenter.x + (i / 2) * cliffHalfWidth, z: cliffZ, r: 1.9 });
+  }
+
+  return { scene, worldRoot, sun, fill, ambient, fog, stars, sunDisc, moonDisc, colliders };
 }
