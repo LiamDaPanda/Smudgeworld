@@ -920,10 +920,34 @@ export function updateAtmosphere(dt: number, time = 0) {
   }
 }
 
+interface AvoidCircle { x: number; z: number; r: number }
+
+// Bezier point for the path, pushed radially out of any avoid-circle (the
+// pond) so the path bends around water instead of crossing it.
+function pathPointAt(
+  t: number,
+  cx1: number, cz1: number, cx2: number, cz2: number,
+  viaX: number, viaZ: number,
+  avoid?: AvoidCircle
+): [number, number] {
+  const u = 1 - t;
+  let x = u * u * cx1 + 2 * u * t * viaX + t * t * cx2;
+  let z = u * u * cz1 + 2 * u * t * viaZ + t * t * cz2;
+  if (avoid) {
+    const d = Math.hypot(x - avoid.x, z - avoid.z);
+    if (d < avoid.r) {
+      const k = avoid.r / Math.max(d, 0.0001);
+      x = avoid.x + (x - avoid.x) * k;
+      z = avoid.z + (z - avoid.z) * k;
+    }
+  }
+  return [x, z];
+}
+
 // Winding path that follows the terrain — each vertex is lifted to the
 // ground height at its (x, z), so the ribbon hugs the hills instead of
 // clipping through them as flat triangles.
-function makePath(cx1: number, cz1: number, cx2: number, cz2: number, viaX: number, viaZ: number): Group {
+function makePath(cx1: number, cz1: number, cx2: number, cz2: number, viaX: number, viaZ: number, avoid?: AvoidCircle): Group {
   const g = new Group();
   const steps = 90;
   const positions: number[] = [];
@@ -932,9 +956,7 @@ function makePath(cx1: number, cz1: number, cx2: number, cz2: number, viaX: numb
   let prev: [number, number, number] | null = null;
   for (let i = 0; i <= steps; i++) {
     const t = i / steps;
-    const u = 1 - t;
-    const x = u * u * cx1 + 2 * u * t * viaX + t * t * cx2;
-    const z = u * u * cz1 + 2 * u * t * viaZ + t * t * cz2;
+    const [x, z] = pathPointAt(t, cx1, cz1, cx2, cz2, viaX, viaZ, avoid);
     const y = sampleGroundHeight(x, z) + yLift;
     if (prev) {
       const dx = x - prev[0];
@@ -1039,8 +1061,10 @@ export function buildWorld(worldWidth: number, worldDepth: number): { scene: Sce
   ground.position.set(worldWidth / 2, 0, worldDepth / 2);
   worldRoot.add(ground);
 
-  // Winding path from SW to NE via the pond area
-  worldRoot.add(makePath(4, worldDepth - 4, worldWidth - 4, 4, worldWidth * 0.5, worldDepth * 0.5));
+  // Winding path from SW to NE, bending around the pond so it never crosses
+  // the water. Avoid radius = pond + margin for the path's half-width.
+  const pathAvoid = { x: pondCenter.x, z: pondCenter.z, r: pondCenter.radius + 1.6 };
+  worldRoot.add(makePath(4, worldDepth - 4, worldWidth - 4, 4, worldWidth * 0.5, worldDepth * 0.5, pathAvoid));
 
   const rand = seededRand(42);
 
@@ -1049,18 +1073,13 @@ export function buildWorld(worldWidth: number, worldDepth: number): { scene: Sce
   // overlap an existing footprint, sit on the path, or fall in the pond.
   const placedFootprints: { x: number; z: number; r: number }[] = [];
   const pathSamples: [number, number][] = [];
-  {
-    // Same bezier as makePath above
-    const x1 = 4, z1 = worldDepth - 4, x2 = worldWidth - 4, z2 = 4;
-    const vx = worldWidth * 0.5, vz = worldDepth * 0.5;
-    for (let i = 0; i <= 60; i++) {
-      const t = i / 60;
-      const u = 1 - t;
-      pathSamples.push([
-        u * u * x1 + 2 * u * t * vx + t * t * x2,
-        u * u * z1 + 2 * u * t * vz + t * t * z2,
-      ]);
-    }
+  for (let i = 0; i <= 60; i++) {
+    pathSamples.push(pathPointAt(
+      i / 60,
+      4, worldDepth - 4, worldWidth - 4, 4,
+      worldWidth * 0.5, worldDepth * 0.5,
+      pathAvoid
+    ));
   }
   const PATH_CLEARANCE = 1.6;
   const canPlace = (x: number, z: number, r: number): boolean => {
