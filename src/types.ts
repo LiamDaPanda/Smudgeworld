@@ -35,6 +35,7 @@ export interface Smudge {
   timedWindow?: { start: number; end: number };
   name: string;
   set: string;
+  __lastShot?: Snapshot; // scratch space for the photo-mode session
 }
 
 export interface GameState {

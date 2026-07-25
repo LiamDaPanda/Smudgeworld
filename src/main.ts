@@ -3,10 +3,11 @@ import { createInput } from "./input.ts";
 import { buildWorld } from "./world.ts";
 import { createPlayer, updatePlayer } from "./player.ts";
 import { attachSmudges, createSmudges, updateSmudges } from "./smudges.ts";
-import { drawViewfinder, hideViewfinder, tryTakePhoto } from "./camera.ts";
-import { addSnapshot, closeInventory, openInventory, renderLibrary } from "./library.ts";
+import { hideViewfinder } from "./camera.ts";
+import { addSnapshot, closeInventory, getSetSummary, openInventory, renderLibrary } from "./library.ts";
 import { createFish, createPond, createWaterfall, updateFish, updatePond, updateWaterfall } from "./water.ts";
-import type { GameState } from "./types.ts";
+import { isPhotoModeActive, startPhotoMode } from "./photo.ts";
+import type { GameState, Smudge } from "./types.ts";
 
 const canvas = document.getElementById("game") as HTMLCanvasElement;
 
@@ -68,10 +69,24 @@ const state: GameState = {
 const bounds = { minX: 1, maxX: worldWidth - 1, minZ: 1, maxZ: worldDepth - 1 };
 
 function updateHud(s: GameState) {
-  const coin = document.getElementById("coin");
-  const found = document.getElementById("found");
-  if (coin) coin.textContent = `Coins: ${s.coins}`;
-  if (found) found.textContent = `Snapshots: ${s.snapshotCount}`;
+  const coin = document.getElementById("coin-val");
+  const found = document.getElementById("found-val");
+  if (coin) coin.textContent = String(s.coins);
+  if (found) found.textContent = String(s.snapshotCount);
+  updateProgress();
+}
+
+function updateProgress() {
+  const summary = getSetSummary();
+  // Show the first incomplete set, or the last one if all complete
+  const target = summary.find((x) => !x.complete) ?? summary[summary.length - 1];
+  const nameEl = document.getElementById("pb-name");
+  const countEl = document.getElementById("pb-count");
+  const fillEl = document.getElementById("pb-fill");
+  if (!target) return;
+  if (nameEl) nameEl.textContent = target.name;
+  if (countEl) countEl.textContent = `${target.captured}/${target.total}`;
+  if (fillEl) fillEl.style.width = `${(target.captured / target.total) * 100}%`;
 }
 updateHud(state);
 renderLibrary();
@@ -183,14 +198,89 @@ const CAM_LOOK_HEIGHT = 1.3;
 
 const idleInput = { moveX: 0, moveZ: 0, cameraHeld: false, aimX: 0, aimY: 0, consumeSnap: () => false };
 
+// Proximity to smudges — updated each frame so the prompt tracks the nearest.
+const PROX_RADIUS = 3.5;
+let nearestSmudge: Smudge | null = null;
+
+function updateProximity() {
+  const p = state.player;
+  let best: Smudge | null = null;
+  let bestDist = PROX_RADIUS;
+  for (const s of state.smudges) {
+    if (!s.visible) continue;
+    const dx = s.worldPos.x - p.worldX;
+    const dz = s.worldPos.z - p.worldZ;
+    const d = Math.hypot(dx, dz);
+    if (d < bestDist) { best = s; bestDist = d; }
+  }
+  const changed = best !== nearestSmudge;
+  nearestSmudge = best;
+  if (changed) {
+    const prompt = document.getElementById("prox-prompt");
+    const promptName = document.getElementById("prox-name");
+    if (best && !isPhotoModeActive()) {
+      prompt?.classList.add("show");
+      if (promptName) promptName.textContent = "A blurry figure";
+    } else {
+      prompt?.classList.remove("show");
+    }
+  }
+}
+
+function launchPhotoIfPossible() {
+  if (!gameActive || isPhotoModeActive() || !nearestSmudge) return;
+  const s = nearestSmudge;
+  document.getElementById("prox-prompt")?.classList.remove("show");
+  startPhotoMode(s, (shot) => {
+    if (!shot) return;
+    const result = addSnapshot(shot);
+    state.snapshotCount += 1;
+    state.coins += Math.round(shot.clarity * 10);
+    if (result.completedSet) {
+      state.coins += result.reward;
+      showToast(`Set complete: ${result.completedSet.name} · +${result.reward} coins`, 3400);
+    } else if (result.newSubject) {
+      showToast(`New: ${shot.subjectName} · ${Math.round(shot.clarity * 100)}%`);
+    } else if (result.improvedBest) {
+      showToast(`Better shot of ${shot.subjectName} · ${Math.round(shot.clarity * 100)}%`);
+    }
+    updateHud(state);
+  });
+}
+
+document.getElementById("prox-btn")?.addEventListener("click", launchPhotoIfPossible);
+
+// Debug hook — surface state for playwright screenshots
+(window as unknown as { __sw?: unknown }).__sw = {
+  teleportToSmudge: (i = 0) => {
+    const s = state.smudges[i];
+    if (!s) return;
+    state.player.worldX = s.worldPos.x - 1;
+    state.player.worldZ = s.worldPos.z + 1;
+  },
+  startPhoto: (i = 0) => startPhotoMode(state.smudges[i], () => {}),
+};
+window.addEventListener("keydown", (e) => {
+  if ((e.key === "e" || e.key === "E") && gameActive && !isPhotoModeActive() && nearestSmudge) {
+    launchPhotoIfPossible();
+    e.preventDefault();
+  }
+});
+
 function update(dt: number) {
   state.time += dt;
-  // While the menu/cutscene is up, freeze the player and skip snapshot logic.
-  updatePlayer(state.player, gameActive ? state.input : idleInput, dt, bounds);
+  // While the menu/cutscene is up or photo mode is active, freeze the player.
+  const input = gameActive && !isPhotoModeActive() ? state.input : idleInput;
+  updatePlayer(state.player, input, dt, bounds);
   updateSmudges(state.smudges, state.time);
   updatePond(state.pond, state.time);
   updateFish(state.fish, state.time);
   updateWaterfall(state.waterfall, state.time);
+  if (gameActive && !isPhotoModeActive()) updateProximity();
+  else if (isPhotoModeActive()) {
+    // hide prompt during photo mode
+    document.getElementById("prox-prompt")?.classList.remove("show");
+  }
 
   const p = state.player;
   // "Behind" the player means opposite of the direction they're facing.
@@ -208,41 +298,13 @@ function update(dt: number) {
   camera.position.y += (targetY - camera.position.y) * k;
   camera.lookAt(p.worldX, CAM_LOOK_HEIGHT, p.worldZ);
 
-  if (gameActive && state.player.cameraRaised) {
-    drawViewfinder(state, window.innerWidth, window.innerHeight);
-  } else {
-    hideViewfinder();
-  }
-
-  if (gameActive && state.input.consumeSnap() && state.player.cameraRaised) {
-    const shot = tryTakePhoto(state);
-    if (shot) {
-      const result = addSnapshot(shot);
-      state.snapshotCount += 1;
-      state.coins += Math.round(shot.clarity * 10);
-      shutterFlash();
-
-      if (result.completedSet) {
-        state.coins += result.reward;
-        showToast(`Set complete: ${result.completedSet.name} · +${result.reward} coins`, 3400);
-      } else if (result.newSubject) {
-        showToast(`New: ${shot.subjectName} · ${Math.round(shot.clarity * 100)}%`);
-      } else if (result.improvedBest) {
-        showToast(`Better shot of ${shot.subjectName} · ${Math.round(shot.clarity * 100)}%`);
-      }
-      updateHud(state);
-    }
-  }
+  // Old snap-with-viewfinder flow is gone in favor of the proximity/photo-mode
+  // flow. Hide the DOM viewfinder in case anything else toggled it.
+  hideViewfinder();
+  // Consume any pending snap so it doesn't linger between modes.
+  state.input.consumeSnap();
 }
 
-function shutterFlash() {
-  const flash = document.createElement("div");
-  flash.style.cssText =
-    "position:fixed;inset:0;background:#fff;opacity:0.7;pointer-events:none;z-index:10;transition:opacity 220ms ease;";
-  document.body.appendChild(flash);
-  requestAnimationFrame(() => (flash.style.opacity = "0"));
-  setTimeout(() => flash.remove(), 260);
-}
 
 let last = performance.now();
 function frame(now: number) {
