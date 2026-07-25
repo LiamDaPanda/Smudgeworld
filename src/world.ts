@@ -150,15 +150,15 @@ function sketchyEdges(
   geometry: BufferGeometry,
   edgeThreshold: number,
   color: Color,
-  passes = 2,
-  jitter = 0.012
+  passes = 3,
+  jitter = 0.018
 ): Group {
   const g = new Group();
   const edges = new EdgesGeometry(geometry, edgeThreshold);
   const src = edges.attributes.position.array as Float32Array;
   for (let pass = 0; pass < passes; pass++) {
     const arr = new Float32Array(src.length);
-    const j = jitter * (pass === 0 ? 1 : 1.6);
+    const j = jitter * (pass === 0 ? 0.4 : 1 + pass * 0.4);
     for (let i = 0; i < src.length; i++) {
       arr[i] = src[i] + (Math.random() - 0.5) * j;
     }
@@ -167,7 +167,7 @@ function sketchyEdges(
     const mat = new LineBasicMaterial({
       color,
       transparent: true,
-      opacity: pass === 0 ? 0.9 : 0.45,
+      opacity: pass === 0 ? 1.0 : pass === 1 ? 0.55 : 0.3,
     });
     const ls = new LineSegments(geo, mat);
     ls.renderOrder = 2 + pass;
@@ -280,7 +280,8 @@ function makeDeciduousTree(rand: () => number): Group {
   );
   trunk.position.y = trunkH / 2;
   tree.add(trunk);
-  tree.add(makeBarkStrokes(rand, trunkR, trunkH, 8 + Math.floor(rand() * 5)));
+  tree.add(makeBarkStrokes(rand, trunkR, trunkH, 10 + Math.floor(rand() * 6)));
+  if (rand() < 0.55) tree.add(makeTreeKnots(rand, trunkR, trunkH, 1 + Math.floor(rand() * 2)));
 
   // Main crown
   const crownR = 0.95 + rand() * 0.55;
@@ -420,6 +421,11 @@ function makeRock(rand: () => number): Group {
   rock.scale.set(1.2 + rand() * 0.3, 0.7, 1 + rand() * 0.3);
   rock.rotation.y = rand() * Math.PI;
   g.add(rock);
+  const cracks = makeRockCracks(rand, r);
+  cracks.position.copy(rock.position);
+  cracks.scale.copy(rock.scale);
+  cracks.rotation.copy(rock.rotation);
+  g.add(cracks);
   return g;
 }
 
@@ -536,6 +542,127 @@ function makeBench(rand: () => number): Group {
   g.rotation.y = rand() * Math.PI * 2;
   return g;
 }
+
+// ---------------- Ground texture layers ----------------
+
+// A watercolor blob patch on the ground — used for grass tufts and dirt.
+function makeGroundPatch(
+  cx: number, cz: number, radius: number, tex: CanvasTexture, tint: Color, opacity = 0.9
+): Mesh {
+  const geo = new PlaneGeometry(radius * 2, radius * 2);
+  const mat = new MeshBasicMaterial({
+    map: tex, color: tint,
+    transparent: true, opacity,
+    depthWrite: false,
+  });
+  const m = new Mesh(geo, mat);
+  m.rotation.x = -Math.PI / 2;
+  m.position.set(cx, 0.008 + Math.random() * 0.002, cz);
+  m.rotation.z = Math.random() * Math.PI * 2;
+  return m;
+}
+
+// Random small ink specks scattered across the ground — feels like flecks
+// from a pen on paper.
+function makeInkSplatters(rand: () => number, worldWidth: number, worldDepth: number, count: number): Mesh {
+  const c = document.createElement("canvas");
+  c.width = c.height = 64;
+  const ctx = c.getContext("2d")!;
+  ctx.fillStyle = "rgba(30,30,30,0.9)";
+  ctx.beginPath();
+  ctx.arc(32, 32, 8 + Math.random() * 6, 0, Math.PI * 2);
+  ctx.fill();
+  for (let i = 0; i < 6; i++) {
+    ctx.beginPath();
+    const ang = Math.random() * Math.PI * 2;
+    const dist = 12 + Math.random() * 14;
+    const x = 32 + Math.cos(ang) * dist;
+    const y = 32 + Math.sin(ang) * dist;
+    ctx.arc(x, y, 1.5 + Math.random() * 2.5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  const tex = new CanvasTexture(c);
+  tex.needsUpdate = true;
+
+  // Use a bunch of small planes packed into one Group as one InstancedMesh
+  // would be cleaner, but for this count individual planes are fine.
+  const g = new Group();
+  for (let i = 0; i < count; i++) {
+    const size = 0.15 + rand() * 0.2;
+    const m = new Mesh(
+      new PlaneGeometry(size, size),
+      new MeshBasicMaterial({ map: tex, transparent: true, opacity: 0.35 + rand() * 0.35, depthWrite: false })
+    );
+    m.rotation.x = -Math.PI / 2;
+    m.rotation.z = rand() * Math.PI * 2;
+    m.position.set(rand() * worldWidth, 0.007, rand() * worldDepth);
+    g.add(m);
+  }
+  // Wrap the whole group in a proxy mesh isn't needed — just return one dummy
+  // Mesh but attach the group as its child. Easier: return the group cast as
+  // Mesh via a workaround. We'll return `g as unknown as Mesh` so callers who
+  // treat it as a scene child work — the return type is a lie but semantically
+  // a Group behaves fine for `worldRoot.add(...)`.
+  return g as unknown as Mesh;
+}
+
+// Tiny crack lines on the surface of a rock.
+function makeRockCracks(rand: () => number, radius: number): LineSegments {
+  const positions: number[] = [];
+  const count = 3 + Math.floor(rand() * 3);
+  for (let i = 0; i < count; i++) {
+    const y = radius * (0.3 + rand() * 0.5);
+    const startAng = rand() * Math.PI * 2;
+    let x = Math.cos(startAng) * radius * 0.9;
+    let z = Math.sin(startAng) * radius * 0.9;
+    const steps = 3 + Math.floor(rand() * 3);
+    for (let s = 0; s < steps; s++) {
+      const dx = (rand() - 0.5) * 0.08;
+      const dz = (rand() - 0.5) * 0.08;
+      const nx = x + dx;
+      const nz = z + dz;
+      positions.push(x, y, z, nx, y - rand() * 0.02, nz);
+      x = nx; z = nz;
+    }
+  }
+  const geo = new BufferGeometry();
+  geo.setAttribute("position", new Float32BufferAttribute(positions, 3));
+  return new LineSegments(geo, new LineBasicMaterial({ color: INK, transparent: true, opacity: 0.7 }));
+}
+
+// A tree-knot circle on the trunk.
+function makeTreeKnots(rand: () => number, radius: number, trunkH: number, count: number): LineSegments {
+  const positions: number[] = [];
+  for (let i = 0; i < count; i++) {
+    const y = trunkH * (0.3 + rand() * 0.5);
+    const ang = rand() * Math.PI * 2;
+    const cx = Math.cos(ang) * radius * 1.02;
+    const cz = Math.sin(ang) * radius * 1.02;
+    const kr = 0.03 + rand() * 0.03;
+    const seg = 10;
+    for (let s = 0; s < seg; s++) {
+      const a1 = (s / seg) * Math.PI * 2;
+      const a2 = ((s + 1) / seg) * Math.PI * 2;
+      // The knot ring lies in the plane tangent to the trunk surface
+      const t1x = -Math.sin(ang);
+      const t1z = Math.cos(ang);
+      const x1 = cx + Math.cos(a1) * kr * t1x;
+      const z1 = cz + Math.cos(a1) * kr * t1z;
+      const y1 = y + Math.sin(a1) * kr;
+      const x2 = cx + Math.cos(a2) * kr * t1x;
+      const z2 = cz + Math.cos(a2) * kr * t1z;
+      const y2 = y + Math.sin(a2) * kr;
+      positions.push(x1, y1, z1, x2, y2, z2);
+    }
+  }
+  const geo = new BufferGeometry();
+  geo.setAttribute("position", new Float32BufferAttribute(positions, 3));
+  return new LineSegments(geo, new LineBasicMaterial({ color: new Color("#3a2a1a"), transparent: true, opacity: 0.7 }));
+}
+
+// Grass and dirt watercolor textures for ground patches
+const grassPatchTex = makeWatercolorTexture("#6a8d4a", 1100, 256, 22, 8, 0, true);
+const dirtPatchTex = makeWatercolorTexture("#7a5a38", 1200, 256, 18, 6, 0, true);
 
 // Soft dark ellipse under a large object — reads as a ground shadow.
 const shadowTex = makeWatercolorTexture("#3a352b", 950, 128, 10, 4, 0, true);
@@ -780,6 +907,21 @@ export function buildWorld(worldWidth: number, worldDepth: number): { scene: Sce
   worldRoot.add(makePath(4, worldDepth - 4, worldWidth - 4, 4, worldWidth * 0.5, worldDepth * 0.5));
 
   const rand = seededRand(42);
+
+  // Ground texture layers: grass patches, dirt patches, ink splatters
+  for (let i = 0; i < 45; i++) {
+    const gx = rand() * worldWidth;
+    const gz = rand() * worldDepth;
+    const gr = 1.2 + rand() * 1.5;
+    worldRoot.add(makeGroundPatch(gx, gz, gr, grassPatchTex, new Color("#8db866"), 0.55 + rand() * 0.25));
+  }
+  for (let i = 0; i < 22; i++) {
+    const gx = rand() * worldWidth;
+    const gz = rand() * worldDepth;
+    const gr = 0.8 + rand() * 1.4;
+    worldRoot.add(makeGroundPatch(gx, gz, gr, dirtPatchTex, new Color("#a07a4a"), 0.5 + rand() * 0.25));
+  }
+  worldRoot.add(makeInkSplatters(rand, worldWidth, worldDepth, 60));
 
   worldRoot.add(makeGroundStrokes(rand, worldWidth, worldDepth));
   worldRoot.add(makePebbles(rand, worldWidth, worldDepth));

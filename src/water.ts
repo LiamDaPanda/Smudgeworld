@@ -117,6 +117,20 @@ export function createPond(cx: number, cz: number, radius: number): Pond {
   rimGeo.setAttribute("position", new Float32BufferAttribute(rimPos, 3));
   group.add(new LineSegments(rimGeo, new LineBasicMaterial({ color: INK, transparent: true, opacity: 0.75 })));
 
+  // Horizontal ink hatch strokes on the surface for water texture
+  const hatchPos: number[] = [];
+  for (let i = 0; i < 80; i++) {
+    const r = Math.sqrt(Math.random()) * radius * 0.85;
+    const ang = Math.random() * Math.PI * 2;
+    const x = cx + Math.cos(ang) * r;
+    const z = cz + Math.sin(ang) * r;
+    const len = 0.12 + Math.random() * 0.25;
+    hatchPos.push(x - len / 2, 0.018, z, x + len / 2, 0.018, z);
+  }
+  const hatchGeo = new BufferGeometry();
+  hatchGeo.setAttribute("position", new Float32BufferAttribute(hatchPos, 3));
+  group.add(new LineSegments(hatchGeo, new LineBasicMaterial({ color: new Color("#2b2b2b"), transparent: true, opacity: 0.45 })));
+
   // Reeds around one side
   const reedPos: number[] = [];
   const rand = seededRand(1400);
