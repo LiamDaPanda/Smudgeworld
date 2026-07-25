@@ -145,7 +145,7 @@
       #rotate-overlay p { margin: 0; opacity: 0.65; font-style: italic; font-size: 15px; }
 
       /* Inventory button lives next to the HUD counters */
-      #inv-toggle, #mute-toggle, #shop-toggle {
+      #inv-toggle, #mute-toggle, #shop-toggle, #letters-toggle {
         pointer-events: auto;
         margin-top: 6px;
         border: 1px solid #2b2b2b;
@@ -155,8 +155,9 @@
         padding: 4px 10px; cursor: pointer;
         box-shadow: 1px 1px 0 #2b2b2b;
       }
-      #inv-toggle:hover, #mute-toggle:hover, #shop-toggle:hover { background: rgba(43,43,43,0.85); color: #f4efe6; }
-      #shop-toggle { margin-top: 4px; }
+      #inv-toggle:hover, #mute-toggle:hover, #shop-toggle:hover, #letters-toggle:hover { background: rgba(43,43,43,0.85); color: #f4efe6; }
+      #shop-toggle, #letters-toggle { margin-top: 4px; }
+      #letters-toggle { position: relative; }
       #mute-toggle { margin-top: 4px; font-size: 11px; opacity: 0.85; }
       /* At night the clock chip inverts so the HUD stays legible on dark sky */
       #clock-chip.is-night {
@@ -696,6 +697,76 @@
       }
       .shop-owned { font-size: 12px; font-style: italic; opacity: 0.7; }
 
+      /* Letters — ink on a sheet of aged paper, deliberately unlike the
+         chrome of the Collection and Gear panels. */
+      #letter-modal {
+        position: fixed; inset: 0; z-index: 24;
+        background: rgba(26, 24, 18, 0.62);
+        display: none; align-items: center; justify-content: center;
+        padding: calc(20px + var(--safe-t)) 20px calc(20px + var(--safe-b));
+      }
+      #letter-modal.open { display: flex; }
+      .letter-sheet {
+        background: #f7f1e0;
+        color: #33302a;
+        width: 100%; max-width: 500px;
+        max-height: 100%; overflow-y: auto;
+        padding: 26px 30px 22px;
+        border: 1px solid #cbbf9f;
+        box-shadow: 0 14px 34px rgba(20, 16, 8, 0.45);
+        font-family: Georgia, serif;
+        position: relative;
+      }
+      /* A faint rule down the left, like a folded sheet */
+      .letter-sheet::before {
+        content: ""; position: absolute; left: 16px; top: 0; bottom: 0;
+        width: 1px; background: rgba(160, 60, 50, 0.18);
+      }
+      .letter-head { border-bottom: 1px solid rgba(51,48,42,0.25); padding-bottom: 10px; margin-bottom: 14px; }
+      .letter-title { font-size: 21px; letter-spacing: 0.05em; }
+      .letter-from { font-size: 12px; font-style: italic; opacity: 0.6; margin-top: 3px; }
+      .letter-body p {
+        margin: 0 0 12px; font-size: 14.5px; line-height: 1.65;
+        text-indent: 1.2em;
+      }
+      .letter-body p:first-child { text-indent: 0; }
+      .letter-actions { display: flex; justify-content: flex-end; margin-top: 6px; }
+      .letter-actions button {
+        background: #33302a; color: #f7f1e0; border: none;
+        padding: 8px 20px; cursor: pointer;
+        font-family: Georgia, serif; font-size: 13px; letter-spacing: 0.08em;
+      }
+
+      #letters-modal {
+        position: fixed; inset: 0; z-index: 15;
+        background: rgba(30,30,25,0.45);
+        display: none; align-items: center; justify-content: center;
+        padding: calc(20px + var(--safe-t)) calc(20px + var(--safe-r)) calc(20px + var(--safe-b)) calc(20px + var(--safe-l));
+      }
+      #letters-modal.open { display: flex; }
+      #letters-body { overflow-y: auto; padding: 12px 20px 20px; }
+      .letters-empty { font-size: 13px; font-style: italic; opacity: 0.6; }
+      .letter-row {
+        display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+        width: 100%; text-align: left;
+        background: none; border: none;
+        border-bottom: 1px dashed rgba(43,43,43,0.35);
+        padding: 10px 4px; cursor: pointer;
+        font-family: Georgia, serif; color: #2b2b2b;
+      }
+      .letter-row:hover { background: rgba(43,43,43,0.06); }
+      .letter-row-title { font-size: 15px; }
+      .letter-row-from { font-size: 11px; font-style: italic; opacity: 0.6; }
+      .letter-row.unread .letter-row-title::after {
+        content: "new"; margin-left: 8px; font-size: 9px; letter-spacing: 0.1em;
+        background: #c85252; color: #f4efe6; padding: 1px 5px; vertical-align: middle;
+      }
+      #letters-toggle.has-new::after {
+        content: ""; position: absolute; top: -4px; right: -4px;
+        width: 9px; height: 9px; border-radius: 50%;
+        background: #c85252; border: 1.5px solid #f4efe6;
+      }
+
       /* Toast for events like set completion */
       #toast {
         position: fixed; top: calc(24px + var(--safe-t));
@@ -742,6 +813,7 @@
         </div>
         <button id="inv-toggle" type="button">Collection</button>
         <button id="shop-toggle" type="button">Gear</button>
+        <button id="letters-toggle" type="button">Letters</button>
         <button id="mute-toggle" type="button">Sound on</button>
       </div>
     </div>
@@ -768,6 +840,27 @@
           <button id="shop-close" type="button">Close</button>
         </header>
         <div id="shop-body"></div>
+      </div>
+    </div>
+    <div id="letter-modal" role="dialog" aria-modal="true" aria-label="Letter">
+      <div class="letter-sheet">
+        <div class="letter-head">
+          <div class="letter-title" id="letter-title"></div>
+          <div class="letter-from" id="letter-from"></div>
+        </div>
+        <div class="letter-body" id="letter-body"></div>
+        <div class="letter-actions">
+          <button id="letter-close" type="button">Set it down</button>
+        </div>
+      </div>
+    </div>
+    <div id="letters-modal" role="dialog" aria-modal="true" aria-label="Correspondence">
+      <div class="inv-panel">
+        <header>
+          <h2>Correspondence</h2>
+          <button id="letters-close" type="button">Close</button>
+        </header>
+        <div id="letters-body"></div>
       </div>
     </div>
     <div id="toast" role="status" aria-live="polite"></div>
