@@ -1044,6 +1044,55 @@ export function buildWorld(worldWidth: number, worldDepth: number): { scene: Sce
 
   const rand = seededRand(42);
 
+  // ---- Collision-aware placement ----
+  // Objects register a footprint circle; new placements are rejected if they
+  // overlap an existing footprint, sit on the path, or fall in the pond.
+  const placedFootprints: { x: number; z: number; r: number }[] = [];
+  const pathSamples: [number, number][] = [];
+  {
+    // Same bezier as makePath above
+    const x1 = 4, z1 = worldDepth - 4, x2 = worldWidth - 4, z2 = 4;
+    const vx = worldWidth * 0.5, vz = worldDepth * 0.5;
+    for (let i = 0; i <= 60; i++) {
+      const t = i / 60;
+      const u = 1 - t;
+      pathSamples.push([
+        u * u * x1 + 2 * u * t * vx + t * t * x2,
+        u * u * z1 + 2 * u * t * vz + t * t * z2,
+      ]);
+    }
+  }
+  const PATH_CLEARANCE = 1.6;
+  const canPlace = (x: number, z: number, r: number): boolean => {
+    if (Math.hypot(x - pondCenter.x, z - pondCenter.z) < pondCenter.radius + r) return false;
+    for (const p of pathSamples) {
+      if (Math.hypot(x - p[0], z - p[1]) < PATH_CLEARANCE + r) return false;
+    }
+    for (const f of placedFootprints) {
+      if (Math.hypot(x - f.x, z - f.z) < f.r + r) return false;
+    }
+    return true;
+  };
+  const place = (x: number, z: number, r: number) => placedFootprints.push({ x, z, r });
+
+  // Landmarks (lamps, benches) have fixed positions — register their
+  // footprints first so scattered objects avoid them.
+  const lampSpots: [number, number][] = [
+    [worldWidth * 0.2, worldDepth * 0.25],
+    [worldWidth * 0.78, worldDepth * 0.25],
+    [worldWidth * 0.2, worldDepth * 0.75],
+    [worldWidth * 0.78, worldDepth * 0.75],
+    [worldWidth * 0.5, worldDepth * 0.15],
+    [worldWidth * 0.5, worldDepth * 0.85],
+  ];
+  for (const [lx, lz] of lampSpots) place(lx, lz, 0.6);
+  const benchSpots: [number, number][] = [
+    [worldWidth * 0.3, worldDepth * 0.5],
+    [worldWidth * 0.7, worldDepth * 0.5],
+    [worldWidth * 0.5, worldDepth * 0.3],
+  ];
+  for (const [bx, bz] of benchSpots) place(bx, bz, 1.0);
+
   // Ground texture layers: grass patches, dirt patches, ink splatters.
   // Each is lifted to the terrain height so they lie on the hills.
   for (let i = 0; i < 45; i++) {
@@ -1085,32 +1134,55 @@ export function buildWorld(worldWidth: number, worldDepth: number): { scene: Sce
   worldRoot.add(makeHorizonMarks(rand, worldWidth, -14));
   worldRoot.add(makeClouds(rand, worldWidth, worldDepth));
 
-  const clearRadius = 3; // don't spawn things right on the player's start
+  const clearRadius = 3; // don't spawn low props right on the player's start
+  // Trees need a much wider spawn clearing: the follow camera orbits ~6.5
+  // units behind the player, and a crown there fills the whole screen.
+  const treeClearRadius = 9;
   const cx = worldWidth / 2;
   const cz = worldDepth / 2;
 
   const yAt = (x: number, z: number) => sampleGroundHeight(x, z);
 
+  // Trees use rejection sampling against the footprint list so trunks and
+  // crowns don't intersect each other, the path, or the pond. Footprint is
+  // scaled to the tree's crown so big trees claim more space.
   for (let i = 0; i < 90; i++) {
-    const x = 2 + rand() * (worldWidth - 4);
-    const z = 2 + rand() * (worldDepth - 4);
-    if (Math.hypot(x - cx, z - cz) < clearRadius) continue;
-    const tree = makeTree(rand);
-    tree.position.set(x, yAt(x, z), z);
     const s = 0.85 + rand() * 0.35;
+    const footprint = 1.15 * s;
+    let px = -1, pz = -1;
+    for (let tries = 0; tries < 12; tries++) {
+      const x = 2 + rand() * (worldWidth - 4);
+      const z = 2 + rand() * (worldDepth - 4);
+      if (Math.hypot(x - cx, z - cz) < treeClearRadius) continue;
+      if (!canPlace(x, z, footprint)) continue;
+      px = x; pz = z;
+      break;
+    }
+    if (px < 0) continue; // couldn't find room — skip this tree
+    place(px, pz, footprint);
+    const tree = makeTree(rand);
+    tree.position.set(px, yAt(px, pz), pz);
     tree.scale.setScalar(s);
     worldRoot.add(tree);
     const shadow = makeGroundShadow(0.9 * s);
-    shadow.position.set(x, yAt(x, z) + 0.005, z);
+    shadow.position.set(px, yAt(px, pz) + 0.005, pz);
     worldRoot.add(shadow);
   }
 
   for (let i = 0; i < 60; i++) {
-    const x = rand() * worldWidth;
-    const z = rand() * worldDepth;
-    if (Math.hypot(x - cx, z - cz) < clearRadius) continue;
+    let px = -1, pz = -1;
+    for (let tries = 0; tries < 8; tries++) {
+      const x = rand() * worldWidth;
+      const z = rand() * worldDepth;
+      if (Math.hypot(x - cx, z - cz) < clearRadius) continue;
+      if (!canPlace(x, z, 0.55)) continue;
+      px = x; pz = z;
+      break;
+    }
+    if (px < 0) continue;
+    place(px, pz, 0.55);
     const bush = makeBush(rand);
-    bush.position.set(x, yAt(x, z), z);
+    bush.position.set(px, yAt(px, pz), pz);
     worldRoot.add(bush);
   }
 
@@ -1123,14 +1195,22 @@ export function buildWorld(worldWidth: number, worldDepth: number): { scene: Sce
   }
 
   for (let i = 0; i < 70; i++) {
-    const x = rand() * worldWidth;
-    const z = rand() * worldDepth;
-    if (Math.hypot(x - cx, z - cz) < clearRadius * 0.5) continue;
+    let px = -1, pz = -1;
+    for (let tries = 0; tries < 8; tries++) {
+      const x = rand() * worldWidth;
+      const z = rand() * worldDepth;
+      if (Math.hypot(x - cx, z - cz) < clearRadius * 0.5) continue;
+      if (!canPlace(x, z, 0.4)) continue;
+      px = x; pz = z;
+      break;
+    }
+    if (px < 0) continue;
+    place(px, pz, 0.4);
     const rock = makeRock(rand);
-    rock.position.set(x, yAt(x, z), z);
+    rock.position.set(px, yAt(px, pz), pz);
     worldRoot.add(rock);
     const shadow = makeGroundShadow(0.35);
-    shadow.position.set(x + 0.06, yAt(x, z) + 0.004, z + 0.06);
+    shadow.position.set(px + 0.06, yAt(px, pz) + 0.004, pz + 0.06);
     worldRoot.add(shadow);
   }
 
@@ -1152,14 +1232,7 @@ export function buildWorld(worldWidth: number, worldDepth: number): { scene: Sce
   // Butterflies flutter around half of the flower beds
   spawnButterflies(worldRoot, bedCenters.filter((_, i) => i % 2 === 0));
 
-  const lampCoords: [number, number][] = [
-    [worldWidth * 0.2, worldDepth * 0.25],
-    [worldWidth * 0.78, worldDepth * 0.25],
-    [worldWidth * 0.2, worldDepth * 0.75],
-    [worldWidth * 0.78, worldDepth * 0.75],
-    [worldWidth * 0.5, worldDepth * 0.15],
-    [worldWidth * 0.5, worldDepth * 0.85],
-  ];
+  const lampCoords = lampSpots;
   for (const [lx, lz] of lampCoords) {
     const lamp = makeLampPost(rand);
     lamp.position.set(lx, yAt(lx, lz), lz);
@@ -1167,11 +1240,7 @@ export function buildWorld(worldWidth: number, worldDepth: number): { scene: Sce
     worldRoot.add(lamp);
   }
 
-  const benchCoords: [number, number][] = [
-    [worldWidth * 0.3, worldDepth * 0.5],
-    [worldWidth * 0.7, worldDepth * 0.5],
-    [worldWidth * 0.5, worldDepth * 0.3],
-  ];
+  const benchCoords = benchSpots;
   for (const [bx, bz] of benchCoords) {
     if (Math.hypot(bx - cx, bz - cz) < clearRadius) continue;
     const bench = makeBench(rand);
