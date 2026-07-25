@@ -1,6 +1,6 @@
 import { PerspectiveCamera, WebGLRenderer } from "three";
 import { createInput } from "./input.ts";
-import { buildWorld, sampleGroundHeight, updateAtmosphere } from "./world.ts";
+import { buildWorld, fadeCanopies, sampleGroundHeight, updateAtmosphere } from "./world.ts";
 import {
   clockString, nightAmount, phaseName, registerCelestials, setTimeOfDay, updateDayNight,
 } from "./daynight.ts";
@@ -49,19 +49,26 @@ function resize() {
 resize();
 window.addEventListener("resize", resize);
 
-const worldWidth = 60;
-const worldDepth = 40;
-const world = buildWorld(worldWidth, worldDepth);
-const { scene, worldRoot } = world;
-const player = createPlayer(worldWidth / 2, worldDepth / 2);
-worldRoot.add(player.root);
+const worldWidth = 120;
+const worldDepth = 90;
 
 // Water feature: pond near the north edge with a waterfall behind it and a
-// few fish drifting on the surface. Its position is settled first because
-// the Waterside subjects spawn in a ring around its bank.
-const pondCx = worldWidth * 0.72;
-const pondCz = worldDepth * 0.28;
-const pondRadius = 3.8;
+// few fish drifting on the surface. Its position is settled first because the
+// Waterside subjects spawn in a ring around its bank, and because buildWorld
+// needs it to keep planting out of the water and off the view of the falls.
+const pondCx = worldWidth * 0.78;
+const pondCz = worldDepth * 0.22;
+const pondRadius = 5.2;
+const massifCz = pondCz - 6.0;
+
+const world = buildWorld(worldWidth, worldDepth, {
+  pond: { x: pondCx, z: pondCz, radius: pondRadius },
+  massif: { x: pondCx, z: massifCz, radius: 7.5 },
+});
+const { scene, worldRoot } = world;
+// Spawn on the central green, matching the hub the path network radiates from.
+const player = createPlayer(worldWidth * 0.48, worldDepth * 0.56);
+worldRoot.add(player.root);
 
 const smudges = createSmudges(worldWidth, worldDepth, {
   x: pondCx, z: pondCz, radius: pondRadius,
@@ -73,10 +80,10 @@ worldRoot.add(pond.group);
 
 // The massif goes in before the waterfall so the cliff wall sits behind the
 // falling water rather than in front of it.
-const mountain = createMountain(pondCx, pondCz - 4.6, 3.2, 3.6);
+const mountain = createMountain(pondCx, massifCz, 3.6, 4.0);
 worldRoot.add(mountain.group);
 
-const waterfall = createWaterfall(pondCx, pondCz - 3.5, 3.2, 3.6);
+const waterfall = createWaterfall(pondCx, pondCz - 4.8, 3.6, 4.0);
 worldRoot.add(waterfall.group);
 const fish = createFish(pond, 4);
 
@@ -89,7 +96,7 @@ registerCelestials(sunBody, moonBody);
 
 // Pedestrians: routes avoid solids and the pond, so nobody strolls into a
 // tree or across the water.
-const pedestrians = createPedestrians(worldWidth, worldDepth, 9, (x, z) => {
+const pedestrians = createPedestrians(worldWidth, worldDepth, 22, (x, z) => {
   for (const c of world.colliders) {
     if (Math.hypot(x - c.x, z - c.z) < c.r + 1.0) return false;
   }
@@ -199,7 +206,9 @@ renderLibrary();
 
 const nightTintEl = document.getElementById("night-tint");
 function updateNightGrade(night: number) {
-  if (nightTintEl) nightTintEl.style.opacity = String(night * 0.72);
+  // Raised from 0.72 when the ground stopped being a pale wash: a saturated
+  // green lawn under the old tint still read as daylight with a filter on it.
+  if (nightTintEl) nightTintEl.style.opacity = String(night * 0.82);
 }
 
 document.getElementById("inv-toggle")?.addEventListener("click", () => {
@@ -685,11 +694,17 @@ document.getElementById("prox-btn")?.addEventListener("click", launchPhotoIfPoss
   startPhoto: (i = 0) => startPhotoMode(state.smudges[i], () => {}),
   setTime: (t: number) => setTimeOfDay(t),
   smudgeNames: () => state.smudges.map((s) => s.name),
+  warp: (x: number, z: number, yaw?: number) => {
+    state.player.worldX = x;
+    state.player.worldZ = z;
+    if (yaw !== undefined) state.player.yaw = yaw;
+  },
   sky: () => ({
     sunY: world.sunDisc.position.y, sunVis: sunBody.group.visible,
     moonY: world.moonDisc.position.y, moonVis: moonBody.group.visible,
   }),
   addCoins: (n: number) => { state.coins += n; updateHud(state); renderShop(); },
+  scene: () => scene,
   boom: () => Math.hypot(
     camera.position.x - state.player.worldX,
     camera.position.z - state.player.worldZ
@@ -786,6 +801,10 @@ function update(dt: number) {
   camera.position.z += (targetZ - camera.position.z) * k;
   camera.position.y += (targetY - camera.position.y) * k;
   camera.lookAt(p.worldX, CAM_LOOK_HEIGHT, p.worldZ);
+
+  // Crowns don't block the boom, so in the grove the camera routinely ends up
+  // inside one. Dissolve whichever it's in rather than showing a wall of leaf.
+  fadeCanopies(world.canopies, camera.position.x, camera.position.y, camera.position.z);
 
   // Old snap-with-viewfinder flow is gone in favor of the proximity/photo-mode
   // flow. Hide the DOM viewfinder in case anything else toggled it.

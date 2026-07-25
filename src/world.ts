@@ -2,6 +2,7 @@ import {
   AmbientLight,
   BufferGeometry,
   CanvasTexture,
+  CircleGeometry,
   Color,
   ConeGeometry,
   CylinderGeometry,
@@ -24,6 +25,7 @@ import {
   Points,
   PointsMaterial,
   RGBAFormat,
+  SRGBColorSpace,
   Scene,
   Vector3,
 } from "three";
@@ -144,6 +146,144 @@ function makeWatercolorTexture(
   }
 
   const tex = new CanvasTexture(c);
+  tex.needsUpdate = true;
+  return tex;
+}
+
+/**
+ * Paints the whole park floor into a single texture mapped 1:1 onto the ground
+ * plane.
+ *
+ * The alternative — scattering hundreds of translucent patch quads — needs
+ * roughly one blob per 25 square units to stop the gaps between them reading
+ * as bare sand, which at 120x90 is over a thousand extra draw calls on a
+ * phone. Painting the same washes into one canvas costs nothing at runtime and
+ * lets the regions blend into each other instead of tiling.
+ */
+interface GroundZone {
+  x: number; z: number; r: number;
+  hex: string;
+  /** Blobs per 100 square units of the zone. */
+  density: number;
+  alpha: number;
+}
+
+function makeParkGroundTexture(
+  worldWidth: number, worldDepth: number, margin: number,
+  zones: GroundZone[], pond: { x: number; z: number; radius: number }, seed: number
+): CanvasTexture {
+  const spanX = worldWidth + margin * 2;
+  const spanZ = worldDepth + margin * 2;
+  const W = 2048;
+  const H = Math.max(256, Math.round((W * spanZ) / spanX));
+  const c = document.createElement("canvas");
+  c.width = W;
+  c.height = H;
+  const ctx = c.getContext("2d")!;
+  const rand = seededRand(seed);
+  const sx = W / spanX;
+  const sz = H / spanZ;
+  const toX = (x: number) => (x + margin) * sx;
+  const toZ = (z: number) => (z + margin) * sz;
+
+  // Soft-edged wobbly blob — the same shape language as the watercolor washes
+  // used on the models, so the ground belongs to the same drawing.
+  const blob = (px: number, py: number, r: number, hex: string, a: number) => {
+    const grad = ctx.createRadialGradient(px, py, r * 0.1, px, py, r);
+    grad.addColorStop(0, withAlpha(hex, a));
+    grad.addColorStop(0.6, withAlpha(hex, a * 0.55));
+    grad.addColorStop(1, withAlpha(hex, 0));
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    for (let p = 0; p <= 12; p++) {
+      const t = (p / 12) * Math.PI * 2;
+      const rr = r * (0.7 + rand() * 0.45);
+      const bx = px + Math.cos(t) * rr;
+      const by = py + Math.sin(t) * rr * 0.88;
+      if (p === 0) ctx.moveTo(bx, by); else ctx.lineTo(bx, by);
+    }
+    ctx.closePath();
+    ctx.fill();
+  };
+
+  // Start from opaque turf rather than paper. Layering hundreds of translucent
+  // green blobs over cream converges to a single flat green with no variation
+  // left in it; starting solid and then breaking it up both ways — darker
+  // shade, lighter bleach — is what gives the floor its mottle.
+  ctx.fillStyle = "#9dbb6e";
+  ctx.fillRect(0, 0, W, H);
+
+  const scatter = (n: number, rMin: number, rSpan: number, hex: string, aMin: number, aSpan: number) => {
+    for (let i = 0; i < n; i++) {
+      const wx = -margin + rand() * spanX;
+      const wz = -margin + rand() * spanZ;
+      blob(toX(wx), toZ(wz), (rMin + rand() * rSpan) * sx, hex, aMin + rand() * aSpan);
+    }
+  };
+  const cells = (spanX * spanZ) / 100;
+  // Deep shade and sun-bleached patches, worked at three scales. The small
+  // ones matter most: standing still, the camera sees maybe fifteen world
+  // units across, and without high-frequency variation the floor under your
+  // feet is one flat colour no matter how good the broad washes are.
+  scatter(Math.round(cells * 1.1), 4, 7, "#728f4c", 0.32, 0.26);
+  scatter(Math.round(cells * 0.8), 3.5, 6, "#cbd8a4", 0.2, 0.18);
+  scatter(Math.round(cells * 1.6), 1.2, 2.6, "#82a75a", 0.26, 0.26);
+  scatter(Math.round(cells * 0.8), 1.0, 2.2, "#dfe2be", 0.18, 0.18);
+  scatter(Math.round(cells * 2.6), 0.45, 1.1, "#6e8c48", 0.22, 0.24);
+  scatter(Math.round(cells * 1.6), 0.4, 0.9, "#c2d69a", 0.16, 0.2);
+
+  // Region character on top. Blobs are sampled sqrt-distributed so a zone
+  // fills evenly rather than clumping at its centre.
+  for (const zone of zones) {
+    const n = Math.round((Math.PI * zone.r * zone.r * zone.density) / 100);
+    for (let i = 0; i < n; i++) {
+      const a = rand() * Math.PI * 2;
+      const d = Math.sqrt(rand()) * zone.r;
+      const r = (2.2 + rand() * 4.4) * sx;
+      blob(toX(zone.x + Math.cos(a) * d), toZ(zone.z + Math.sin(a) * d), r, zone.hex,
+           zone.alpha * (0.6 + rand() * 0.6));
+    }
+  }
+
+  // Bare earth scuffs, and a sandy shore hugging the water.
+  scatter(Math.round(cells * 0.55), 1.4, 2.6, "#b39a6c", 0.2 , 0.2);
+  scatter(Math.round(cells * 0.2), 2.0, 4.0, "#8a7a52", 0.12, 0.12);
+  for (let i = 0; i < 110; i++) {
+    const a = rand() * Math.PI * 2;
+    const d = pond.radius + 0.2 + rand() * 3.4;
+    blob(toX(pond.x + Math.cos(a) * d), toZ(pond.z + Math.sin(a) * d),
+         (1.3 + rand() * 1.7) * sx, "#d8c79c", 0.3 + rand() * 0.24);
+  }
+
+  // Beyond the play space the ground fades toward the paper the hills are
+  // drawn on, so the map has no hard green rectangle at its border.
+  const edge = ctx.createLinearGradient(0, 0, 0, H);
+  const fz = (margin * 0.55) / spanZ;
+  edge.addColorStop(0, "rgba(240,236,223,0.85)");
+  edge.addColorStop(fz, "rgba(240,236,223,0)");
+  edge.addColorStop(1 - fz, "rgba(240,236,223,0)");
+  edge.addColorStop(1, "rgba(240,236,223,0.85)");
+  ctx.fillStyle = edge;
+  ctx.fillRect(0, 0, W, H);
+  const edgeX = ctx.createLinearGradient(0, 0, W, 0);
+  const fx = (margin * 0.55) / spanX;
+  edgeX.addColorStop(0, "rgba(240,236,223,0.85)");
+  edgeX.addColorStop(fx, "rgba(240,236,223,0)");
+  edgeX.addColorStop(1 - fx, "rgba(240,236,223,0)");
+  edgeX.addColorStop(1, "rgba(240,236,223,0.85)");
+  ctx.fillStyle = edgeX;
+  ctx.fillRect(0, 0, W, H);
+
+  const tex = new CanvasTexture(c);
+  // The canvas holds sRGB values. Left unflagged, three treats them as linear
+  // and the output transform brightens everything on the way to the screen —
+  // which is what turned a painted park floor into flat pale mint no matter
+  // how much contrast went into the canvas.
+  tex.colorSpace = SRGBColorSpace;
+  // The ground plane is seen at a very shallow angle, so without this the
+  // sampler picks a heavily reduced mip and averages away every blob smaller
+  // than a few metres before it reaches the screen.
+  tex.anisotropy = 16;
   tex.needsUpdate = true;
   return tex;
 }
@@ -271,13 +411,11 @@ const CROWN_HEXES = ["#7f9b62", "#8ea86e", "#6f8a55", "#9cae76"];
 const BUSH_HEXES = ["#6b8352", "#7c9560"];
 const TRUNK_HEX = "#8a6e4c";
 const HILL_HEXES = ["#a8b0c2", "#c0bfba", "#b8b8c8"];
-const GROUND_HEX = "#c9b98e";
 
 const crownTex = CROWN_HEXES.map((h, i) => makeWatercolorTexture(h, 100 + i));
 const bushTex = BUSH_HEXES.map((h, i) => makeWatercolorTexture(h, 200 + i));
 const trunkTex = makeWatercolorTexture(TRUNK_HEX, 300, 128, 12, 4);
 const hillTex = HILL_HEXES.map((h, i) => makeWatercolorTexture(h, 400 + i, 512, 30, 12));
-const groundTex = makeWatercolorTexture(GROUND_HEX, 500, 1024, 60, 60, 0.12);
 
 // Deciduous tree — tapered trunk, layered crown, occasional branch line to
 // the outer canopy. Two crown lobes make it read more organic than a single
@@ -964,32 +1102,43 @@ function makePath(cx1: number, cz1: number, cx2: number, cz2: number, viaX: numb
   const positions: number[] = [];
   const ribbonPos: number[] = [];
   const yLift = 0.03; // sit slightly above the terrain to avoid z-fighting
+  // Width envelope: full at the hub end (where several walks meet and have to
+  // line up), narrowing to nothing at the far end so a spur peters out like a
+  // desire line instead of stopping dead in a blunt rectangle.
+  const widthAt = (t: number) => {
+    const taper = t < 0.62 ? 1 : Math.max(0, 1 - (t - 0.62) / 0.38) ** 0.85;
+    // Slow wobble along the length keeps the edges from reading as ruled.
+    const wobble = 0.9 + 0.14 * Math.sin(t * 11.3 + cx1 * 0.7) + 0.07 * Math.sin(t * 27.1);
+    return 0.78 * taper * wobble;
+  };
   let prev: [number, number, number] | null = null;
+  let prevW = widthAt(0);
   for (let i = 0; i <= steps; i++) {
     const t = i / steps;
     const [x, z] = pathPointAt(t, cx1, cz1, cx2, cz2, viaX, viaZ, avoid);
     const y = sampleGroundHeight(x, z) + yLift;
+    const w = widthAt(t);
     if (prev) {
       const dx = x - prev[0];
       const dz = z - prev[2];
       const len = Math.hypot(dx, dz) || 1;
       const nx = -dz / len;
       const nz = dx / len;
-      const w = 0.9;
+      const pw = prevW;
       // Lift each ribbon edge to the terrain at its own x/z so the strip
       // conforms to the ground on both sides.
-      const pyL = sampleGroundHeight(prev[0] + nx * w, prev[2] + nz * w) + yLift;
-      const pyR = sampleGroundHeight(prev[0] - nx * w, prev[2] - nz * w) + yLift;
+      const pyL = sampleGroundHeight(prev[0] + nx * pw, prev[2] + nz * pw) + yLift;
+      const pyR = sampleGroundHeight(prev[0] - nx * pw, prev[2] - nz * pw) + yLift;
       const yL = sampleGroundHeight(x + nx * w, z + nz * w) + yLift;
       const yR = sampleGroundHeight(x - nx * w, z - nz * w) + yLift;
       // Two triangles forming the ribbon quad from prev→curr:
       //   PL --- CL       (P = prev, C = curr, L = left, R = right)
       //   |  \    |
       //   PR --- CR
-      const PLx = prev[0] + nx * w, PLz = prev[2] + nz * w;
-      const PRx = prev[0] - nx * w, PRz = prev[2] - nz * w;
-      const CLx = x + nx * w,       CLz = z + nz * w;
-      const CRx = x - nx * w,       CRz = z - nz * w;
+      const PLx = prev[0] + nx * pw, PLz = prev[2] + nz * pw;
+      const PRx = prev[0] - nx * pw, PRz = prev[2] - nz * pw;
+      const CLx = x + nx * w,        CLz = z + nz * w;
+      const CRx = x - nx * w,        CRz = z - nz * w;
       ribbonPos.push(
         PLx, pyL, PLz,   CLx, yL, CLz,   PRx, pyR, PRz,
         CLx, yL, CLz,    CRx, yR, CRz,   PRx, pyR, PRz,
@@ -997,6 +1146,7 @@ function makePath(cx1: number, cz1: number, cx2: number, cz2: number, viaX: numb
       positions.push(prev[0], prev[1] + 0.002, prev[2], x, y + 0.002, z);
     }
     prev = [x, y, z];
+    prevW = w;
   }
   const ribbonGeo = new BufferGeometry();
   ribbonGeo.setAttribute("position", new Float32BufferAttribute(ribbonPos, 3));
@@ -1006,7 +1156,9 @@ function makePath(cx1: number, cz1: number, cx2: number, cz2: number, viaX: numb
   g.add(new Mesh(ribbonGeo, new MeshBasicMaterial({
     color: new Color("#d6b988"),
     transparent: true,
-    opacity: 0.7,
+    // Kept below 0.7: where two walks cross, the ribbons overlap and blend
+    // twice, and at full strength the junction burns out into a tan star.
+    opacity: 0.55,
     depthWrite: false,
     polygonOffset: true,
     polygonOffsetFactor: -2,
@@ -1087,12 +1239,62 @@ export interface WorldHandles {
   sunDisc: Group;
   moonDisc: Group;
   colliders: Collider[];
+  canopies: Canopy[];
 }
 
-export function buildWorld(worldWidth: number, worldDepth: number): WorldHandles {
+/**
+ * A tree's crown, for the camera fade. Camera collision only stops the boom on
+ * trunks — a crown is walk-through by design — so in the grove the camera
+ * regularly ends up inside a canopy with the screen a flat sheet of green.
+ * Rather than colliding against crowns (which makes the camera leap around
+ * under every tree), we dissolve the ones it's inside.
+ */
+export interface Canopy {
+  x: number; z: number; yBottom: number; r: number;
+  mats: { m: FadeMaterial; base: number }[];
+  faded: boolean;
+}
+type FadeMaterial = Material & { opacity: number; transparent: boolean };
+
+/**
+ * Fade out any canopy the camera has entered. Cheap enough to run every frame:
+ * a squared-distance test per tree, and material writes only for the handful
+ * actually overlapping.
+ */
+export function fadeCanopies(canopies: Canopy[], camX: number, camY: number, camZ: number) {
+  for (const c of canopies) {
+    // Fully clear at the crown's edge, fully dissolved a little inside it.
+    const d = Math.hypot(camX - c.x, camZ - c.z);
+    const inHeight = camY > c.yBottom - 0.6;
+    const t = inHeight ? (d - c.r * 0.45) / (c.r * 0.75) : 1;
+    const target = Math.max(0, Math.min(1, t));
+    if (target >= 1) {
+      if (!c.faded) continue;
+      for (const { m, base } of c.mats) { m.opacity = base; m.transparent = false; }
+      c.faded = false;
+      continue;
+    }
+    // 0.08 rather than 0 so the tree still reads as a shape you're standing in
+    const k = 0.08 + target * 0.92;
+    for (const { m, base } of c.mats) { m.transparent = true; m.opacity = base * k; }
+    c.faded = true;
+  }
+}
+
+export interface WorldSite {
+  /** The pond. Planting keeps out of it and the paths bend around it. */
+  pond: { x: number; z: number; radius: number };
+  /** The massif behind the pond — a no-plant zone so the cliff stays visible. */
+  massif: { x: number; z: number; radius: number };
+}
+
+export function buildWorld(worldWidth: number, worldDepth: number, site: WorldSite): WorldHandles {
   const scene = new Scene();
   scene.background = makeSkyTexture();
-  const fog = new Fog(PAPER.getHex(), Math.max(worldWidth, worldDepth) * 0.6, Math.max(worldWidth, worldDepth) * 1.4);
+  // Fog is set in absolute units rather than scaled to the map: it's what
+  // gives the mountains their aerial perspective, and that shouldn't get
+  // weaker just because the park got bigger.
+  const fog = new Fog(PAPER.getHex(), 42, 145);
   scene.fog = fog;
 
   // Warm sun from above-right, cool fill from above-left. Toon materials use
@@ -1115,42 +1317,111 @@ export function buildWorld(worldWidth: number, worldDepth: number): WorldHandles
 
   // Flatten around the pond and the winding path so nothing looks like it's
   // floating over invisible hills.
-  const pondCenter = { x: worldWidth * 0.72, z: worldDepth * 0.28, radius: 5.5 };
+  const pondCenter = { x: site.pond.x, z: site.pond.z, radius: site.pond.radius };
   setTerrainFlatten([pondCenter]);
 
-  // Flat single-plane ground with the watercolor texture.
-  const groundGeo = new PlaneGeometry(worldWidth + 60, worldDepth + 60, 1, 1);
-  const ground = new Mesh(
-    groundGeo,
-    new MeshBasicMaterial({ map: groundTex, color: new Color("#f4efe6") })
+  const rand = seededRand(42);
+
+  // ---- Regions ----
+  // The park reads as distinct places rather than one uniform scatter. Each
+  // region has its own planting rules, and the paths connect them like a real
+  // park's desire lines: a central green with spokes out to everything else.
+  const hub: [number, number] = [worldWidth * 0.48, worldDepth * 0.56];
+  const regions = {
+    meadow: { x: hub[0], z: hub[1], r: Math.min(worldWidth, worldDepth) * 0.29 },
+    grove: { x: worldWidth * 0.24, z: worldDepth * 0.28, r: Math.min(worldWidth, worldDepth) * 0.27 },
+    garden: { x: worldWidth * 0.80, z: worldDepth * 0.74, r: Math.min(worldWidth, worldDepth) * 0.22 },
+    wilds: { x: worldWidth * 0.22, z: worldDepth * 0.82, r: Math.min(worldWidth, worldDepth) * 0.22 },
+    waterside: { x: pondCenter.x, z: pondCenter.z, r: pondCenter.radius + 7 },
+  };
+
+  // Flat single-plane ground, painted in one pass from the region layout.
+  const GROUND_MARGIN = 30;
+  const parkGroundTex = makeParkGroundTexture(
+    worldWidth, worldDepth, GROUND_MARGIN,
+    [
+      { ...regions.meadow, r: regions.meadow.r * 1.1, hex: "#9fca6b", density: 26, alpha: 0.3 },
+      { ...regions.grove, hex: "#6f8c52", density: 30, alpha: 0.32 },
+      { ...regions.garden, hex: "#93c078", density: 22, alpha: 0.26 },
+      { ...regions.wilds, hex: "#9d9c63", density: 22, alpha: 0.26 },
+      { ...regions.waterside, r: regions.waterside.r * 1.2, hex: "#8dbc78", density: 20, alpha: 0.26 },
+    ],
+    pondCenter,
+    7717
   );
+  const groundGeo = new PlaneGeometry(worldWidth + GROUND_MARGIN * 2, worldDepth + GROUND_MARGIN * 2, 1, 1);
+  const ground = new Mesh(groundGeo, new MeshBasicMaterial({ map: parkGroundTex }));
   ground.rotation.x = -Math.PI / 2;
   ground.position.set(worldWidth / 2, 0, worldDepth / 2);
   worldRoot.add(ground);
 
-  // Winding path from SW to NE, bending around the pond so it never crosses
-  // the water. Avoid radius = pond + margin for the path's half-width.
-  const pathAvoid = { x: pondCenter.x, z: pondCenter.z, r: pondCenter.radius + 1.6 };
-  worldRoot.add(makePath(4, worldDepth - 4, worldWidth - 4, 4, worldWidth * 0.5, worldDepth * 0.5, pathAvoid));
+  // ---- Path network ----
+  // Spokes from the central green. Each is a bezier that bends around the
+  // pond, and every sample feeds the placement clearance test so nothing
+  // spawns on a walkway.
+  const pathAvoid = { x: pondCenter.x, z: pondCenter.z, r: pondCenter.radius + 1.8 };
+  const pathSamples: [number, number][] = [];
+  const addPath = (
+    ax: number, az: number, bx: number, bz: number, viaX: number, viaZ: number
+  ) => {
+    worldRoot.add(makePath(ax, az, bx, bz, viaX, viaZ, pathAvoid));
+    for (let i = 0; i <= 48; i++) {
+      pathSamples.push(pathPointAt(i / 48, ax, az, bx, bz, viaX, viaZ, pathAvoid));
+    }
+  };
+  // Hub out to the pond, the garden, the grove, and the wilds. The via points
+  // are pulled off the straight line so the walks curve instead of spoking
+  // out like wheel spokes.
+  addPath(hub[0], hub[1], pondCenter.x - 1, pondCenter.z + pondCenter.radius + 2.5,
+          worldWidth * 0.72, worldDepth * 0.42);
+  addPath(hub[0], hub[1], regions.garden.x, regions.garden.z,
+          worldWidth * 0.68, worldDepth * 0.70);
+  addPath(hub[0], hub[1], regions.grove.x, regions.grove.z,
+          worldWidth * 0.32, worldDepth * 0.44);
+  addPath(hub[0], hub[1], regions.wilds.x, regions.wilds.z,
+          worldWidth * 0.30, worldDepth * 0.70);
 
-  const rand = seededRand(42);
+  // A gravel circle where the four walks meet. Without it the ribbons just
+  // cross each other and the junction reads as an accidental tan star.
+  {
+    const hy = sampleGroundHeight(hub[0], hub[1]);
+    const plaza = new Mesh(
+      new CircleGeometry(2.9, 30),
+      new MeshBasicMaterial({
+        color: new Color("#d6b988"), transparent: true, opacity: 0.62, depthWrite: false,
+      })
+    );
+    plaza.rotation.x = -Math.PI / 2;
+    plaza.position.set(hub[0], hy + 0.033, hub[1]);
+    worldRoot.add(plaza);
+    // Scuffed edge rather than a drawn kerb — a ring line here reads as a
+    // gameplay marker, which is the last thing the middle of the park needs.
+    for (let i = 0; i < 26; i++) {
+      const a = (i / 26) * Math.PI * 2 + rand() * 0.2;
+      const d = 2.6 + rand() * 0.9;
+      const speck = makeGroundPatch(
+        hub[0] + Math.cos(a) * d, hub[1] + Math.sin(a) * d,
+        0.5 + rand() * 0.5, dirtPatchTex, new Color("#cbb083"), 0.4
+      );
+      speck.position.y = hy + 0.031;
+      worldRoot.add(speck);
+    }
+  }
 
   // ---- Collision-aware placement ----
   // Objects register a footprint circle; new placements are rejected if they
-  // overlap an existing footprint, sit on the path, or fall in the pond.
+  // overlap an existing footprint, sit on a path, or fall in the pond.
   const placedFootprints: { x: number; z: number; r: number }[] = [];
-  const pathSamples: [number, number][] = [];
-  for (let i = 0; i <= 60; i++) {
-    pathSamples.push(pathPointAt(
-      i / 60,
-      4, worldDepth - 4, worldWidth - 4, 4,
-      worldWidth * 0.5, worldDepth * 0.5,
-      pathAvoid
-    ));
-  }
   const PATH_CLEARANCE = 1.6;
   const canPlace = (x: number, z: number, r: number): boolean => {
     if (Math.hypot(x - pondCenter.x, z - pondCenter.z) < pondCenter.radius + r) return false;
+    // Nothing plants inside the massif, and nothing plants on the sight line
+    // from the pond's south shore to the falls — the cliff is the one long
+    // view in the park and a canopy across it wastes it.
+    if (Math.hypot(x - site.massif.x, z - site.massif.z) < site.massif.radius + r) return false;
+    if (Math.abs(x - pondCenter.x) < 5.5 && z > site.massif.z && z < pondCenter.z + pondCenter.radius + 12) {
+      return false;
+    }
     for (const p of pathSamples) {
       if (Math.hypot(x - p[0], z - p[1]) < PATH_CLEARANCE + r) return false;
     }
@@ -1165,44 +1436,84 @@ export function buildWorld(worldWidth: number, worldDepth: number): WorldHandles
   // footprint — you block on a tree's trunk, not its overhanging canopy, and
   // low bushes and flowers stay walk-through.
   const colliders: Collider[] = [];
+  const canopies: Canopy[] = [];
 
-  // Landmarks (lamps, benches) have fixed positions — register their
-  // footprints first so scattered objects avoid them.
-  const lampSpots: [number, number][] = [
-    [worldWidth * 0.2, worldDepth * 0.25],
-    [worldWidth * 0.78, worldDepth * 0.25],
-    [worldWidth * 0.2, worldDepth * 0.75],
-    [worldWidth * 0.78, worldDepth * 0.75],
-    [worldWidth * 0.5, worldDepth * 0.15],
-    [worldWidth * 0.5, worldDepth * 0.85],
-  ];
-  for (const [lx, lz] of lampSpots) place(lx, lz, 0.6);
-  const benchSpots: [number, number][] = [
-    [worldWidth * 0.3, worldDepth * 0.5],
-    [worldWidth * 0.7, worldDepth * 0.5],
-    [worldWidth * 0.5, worldDepth * 0.3],
-  ];
-  for (const [bx, bz] of benchSpots) place(bx, bz, 1.0);
+  /** Rejection-sample a free point inside a region. */
+  type Region = { x: number; z: number; r: number };
+  const pickIn = (zone: Region, footprint: number, tries = 14): [number, number] | null => {
+    for (let t = 0; t < tries; t++) {
+      // sqrt keeps the distribution even rather than clumping at the centre
+      const a = rand() * Math.PI * 2;
+      const d = Math.sqrt(rand()) * zone.r;
+      const x = zone.x + Math.cos(a) * d;
+      const z = zone.z + Math.sin(a) * d;
+      if (x < 3 || x > worldWidth - 3 || z < 3 || z > worldDepth - 3) continue;
+      if (!canPlace(x, z, footprint)) continue;
+      return [x, z];
+    }
+    return null;
+  };
+
+  // Lamps line the walkways; benches look onto the water and the garden.
+  // Registering these first means the scattered planting avoids them.
+  const lampSpots: [number, number][] = [];
+  for (let i = 0; i < 14; i++) {
+    // Sample along the path network so lamps read as park lighting
+    const p = pathSamples[Math.floor((i + 0.5) / 14 * pathSamples.length)];
+    if (!p) continue;
+    const off = 2.2 + rand() * 0.8;
+    const side = i % 2 === 0 ? 1 : -1;
+    const lx = p[0] + off * side;
+    const lz = p[1] + off * (i % 3 === 0 ? side : -side) * 0.6;
+    if (lx < 3 || lx > worldWidth - 3 || lz < 3 || lz > worldDepth - 3) continue;
+    if (!canPlace(lx, lz, 0.7)) continue;
+    lampSpots.push([lx, lz]);
+    place(lx, lz, 0.7);
+  }
+
+  const benchSpots: [number, number][] = [];
+  for (const zone of [regions.garden, regions.meadow, regions.waterside, regions.garden, regions.meadow]) {
+    const p = pickIn(zone, 1.1);
+    if (!p) continue;
+    benchSpots.push(p);
+    place(p[0], p[1], 1.1);
+  }
 
   // Ground texture layers: grass patches, dirt patches, ink splatters.
-  // Each is lifted to the terrain height so they lie on the hills.
-  for (let i = 0; i < 45; i++) {
+  // Counts are derived from map area, not hard-coded — at fixed counts a
+  // bigger park just reads as bare cream desert.
+  const area = worldWidth * worldDepth;
+
+  // The broad washes live in the painted ground texture. What's left here is
+  // close-up detail: a scattering of tufted patches, worn earth and leaf
+  // litter that resolve when the camera is right over them.
+  for (let i = 0; i < Math.round(area / 38); i++) {
     const gx = rand() * worldWidth;
     const gz = rand() * worldDepth;
-    const gr = 1.2 + rand() * 1.5;
-    const patch = makeGroundPatch(gx, gz, gr, grassPatchTex, new Color("#8db866"), 0.55 + rand() * 0.25);
+    const gr = 1.1 + rand() * 2.0;
+    const patch = makeGroundPatch(gx, gz, gr, grassPatchTex, new Color("#79a552"), 0.3 + rand() * 0.26);
     patch.position.y = sampleGroundHeight(gx, gz) + 0.02;
     worldRoot.add(patch);
   }
-  for (let i = 0; i < 22; i++) {
+  for (let i = 0; i < Math.round(area / 200); i++) {
     const gx = rand() * worldWidth;
     const gz = rand() * worldDepth;
-    const gr = 0.8 + rand() * 1.4;
-    const patch = makeGroundPatch(gx, gz, gr, dirtPatchTex, new Color("#a07a4a"), 0.5 + rand() * 0.25);
-    patch.position.y = sampleGroundHeight(gx, gz) + 0.02;
+    const gr = 0.9 + rand() * 1.8;
+    const patch = makeGroundPatch(gx, gz, gr, dirtPatchTex, new Color("#a07a4a"), 0.34 + rand() * 0.2);
+    patch.position.y = sampleGroundHeight(gx, gz) + 0.022;
     worldRoot.add(patch);
   }
-  const splatters = makeInkSplatters(rand, worldWidth, worldDepth, 60);
+  // Leaf litter under the canopy, so the grove floor isn't uniform turf
+  for (let i = 0; i < Math.round(area / 190); i++) {
+    const a = rand() * Math.PI * 2;
+    const d = Math.sqrt(rand()) * regions.grove.r;
+    const gx = regions.grove.x + Math.cos(a) * d;
+    const gz = regions.grove.z + Math.sin(a) * d;
+    const patch = makeGroundPatch(gx, gz, 1.6 + rand() * 2.2, dirtPatchTex, new Color("#7d6a44"), 0.3 + rand() * 0.22);
+    patch.position.y = sampleGroundHeight(gx, gz) + 0.024;
+    worldRoot.add(patch);
+  }
+  const splatters = makeInkSplatters(rand, worldWidth, worldDepth, Math.round(area / 55));
   // splatters is actually a Group; each child mesh has a preassigned y=0.007
   // and we want them raised per-position. Iterate and adjust.
   (splatters as unknown as { children: { position: { x: number; y: number; z: number } }[] })
@@ -1214,116 +1525,174 @@ export function buildWorld(worldWidth: number, worldDepth: number): WorldHandles
   worldRoot.add(makeGroundStrokes(rand, worldWidth, worldDepth));
   worldRoot.add(makePebbles(rand, worldWidth, worldDepth));
 
-  // Hills form a ring around the walkable area on all four sides.
-  worldRoot.add(makeHillWashesAround(worldWidth, worldDepth, 30, 8, hillTex[2], new Color("#c3c4cd")));
-  worldRoot.add(makeHillSilhouetteAround(rand, worldWidth, worldDepth, 30, 8, new Color("#a89f8e")));
-  worldRoot.add(makeHillWashesAround(worldWidth, worldDepth, 22, 6, hillTex[1], new Color("#bfc2c5")));
-  worldRoot.add(makeHillSilhouetteAround(rand, worldWidth, worldDepth, 22, 6, new Color("#8f8779")));
-  worldRoot.add(makeHillWashesAround(worldWidth, worldDepth, 14, 4.5, hillTex[0], new Color("#b0b5c6")));
-  worldRoot.add(makeHillSilhouetteAround(rand, worldWidth, worldDepth, 14, 4.5, INK_SOFT));
+  // Hills ring the walkable area on all four sides. Offsets scale with the
+  // map so the horizon sits a consistent distance beyond the play space.
+  const hillNear = Math.max(14, Math.min(worldWidth, worldDepth) * 0.26);
+  const hillMid = hillNear * 1.6;
+  const hillFar = hillNear * 2.2;
+  worldRoot.add(makeHillWashesAround(worldWidth, worldDepth, hillFar, 11, hillTex[2], new Color("#c3c4cd")));
+  worldRoot.add(makeHillSilhouetteAround(rand, worldWidth, worldDepth, hillFar, 11, new Color("#a89f8e")));
+  worldRoot.add(makeHillWashesAround(worldWidth, worldDepth, hillMid, 8, hillTex[1], new Color("#bfc2c5")));
+  worldRoot.add(makeHillSilhouetteAround(rand, worldWidth, worldDepth, hillMid, 8, new Color("#8f8779")));
+  worldRoot.add(makeHillWashesAround(worldWidth, worldDepth, hillNear, 6, hillTex[0], new Color("#b0b5c6")));
+  worldRoot.add(makeHillSilhouetteAround(rand, worldWidth, worldDepth, hillNear, 6, INK_SOFT));
 
-  worldRoot.add(makeHorizonMarks(rand, worldWidth, -14));
+  worldRoot.add(makeHorizonMarks(rand, worldWidth, -hillNear));
   worldRoot.add(makeClouds(rand, worldWidth, worldDepth));
 
-  const clearRadius = 3; // don't spawn low props right on the player's start
-  // Trees need a much wider spawn clearing: the follow camera orbits ~6.5
-  // units behind the player, and a crown there fills the whole screen.
-  const treeClearRadius = 9;
-  const cx = worldWidth / 2;
-  const cz = worldDepth / 2;
+  // Trees need a wide spawn clearing: the follow camera orbits ~6.5 units
+  // behind the player, and a crown there fills the whole screen.
+  const treeClearRadius = 10;
+  const spawnX = hub[0];
+  const spawnZ = hub[1];
 
   const yAt = (x: number, z: number) => sampleGroundHeight(x, z);
 
-  // Trees use rejection sampling against the footprint list so trunks and
-  // crowns don't intersect each other, the path, or the pond. Footprint is
-  // scaled to the tree's crown so big trees claim more space.
-  for (let i = 0; i < 90; i++) {
-    const s = 0.85 + rand() * 0.35;
+  const plantTree = (px: number, pz: number, s: number) => {
     const footprint = 1.15 * s;
-    let px = -1, pz = -1;
-    for (let tries = 0; tries < 12; tries++) {
-      const x = 2 + rand() * (worldWidth - 4);
-      const z = 2 + rand() * (worldDepth - 4);
-      if (Math.hypot(x - cx, z - cz) < treeClearRadius) continue;
-      if (!canPlace(x, z, footprint)) continue;
-      px = x; pz = z;
-      break;
-    }
-    if (px < 0) continue; // couldn't find room — skip this tree
     place(px, pz, footprint);
     colliders.push({ x: px, z: pz, r: 0.42 * s }); // trunk only
     const tree = makeTree(rand);
     tree.position.set(px, yAt(px, pz), pz);
     tree.scale.setScalar(s);
     worldRoot.add(tree);
+
+    const mats: { m: FadeMaterial; base: number }[] = [];
+    tree.traverse((o) => {
+      const mm = (o as Mesh).material as Material | Material[] | undefined;
+      if (!mm) return;
+      for (const m of Array.isArray(mm) ? mm : [mm]) {
+        mats.push({ m: m as FadeMaterial, base: (m as FadeMaterial).opacity });
+      }
+    });
+    canopies.push({
+      x: px, z: pz,
+      // Crowns start above the trunk; below that the camera is just looking
+      // past a stem and there's nothing to dissolve.
+      yBottom: yAt(px, pz) + 1.7 * s,
+      r: 1.5 * s,
+      mats,
+      faded: false,
+    });
     const shadow = makeGroundShadow(0.9 * s);
     shadow.position.set(px, yAt(px, pz) + 0.005, pz);
     worldRoot.add(shadow);
-  }
+  };
 
-  for (let i = 0; i < 60; i++) {
-    let px = -1, pz = -1;
-    for (let tries = 0; tries < 8; tries++) {
-      const x = rand() * worldWidth;
-      const z = rand() * worldDepth;
-      if (Math.hypot(x - cx, z - cz) < clearRadius) continue;
-      if (!canPlace(x, z, 0.55)) continue;
-      px = x; pz = z;
-      break;
+  // --- Trees, planted by region ---
+  // The grove is dense and mature; the meadow is a handful of specimens on
+  // open grass; the garden is ornamental; the wilds are sparse and stunted.
+  const treePlan: { zone: Region; count: number; scale: [number, number] }[] = [
+    { zone: regions.grove, count: 150, scale: [0.9, 1.35] },
+    { zone: regions.meadow, count: 26, scale: [1.0, 1.4] },
+    { zone: regions.garden, count: 40, scale: [0.8, 1.05] },
+    { zone: regions.wilds, count: 34, scale: [0.62, 0.9] },
+    { zone: regions.waterside, count: 26, scale: [0.85, 1.15] },
+  ];
+  for (const plan of treePlan) {
+    for (let i = 0; i < plan.count; i++) {
+      const s = plan.scale[0] + rand() * (plan.scale[1] - plan.scale[0]);
+      const p = pickIn(plan.zone, 1.15 * s);
+      if (!p) continue;
+      if (Math.hypot(p[0] - spawnX, p[1] - spawnZ) < treeClearRadius) continue;
+      plantTree(p[0], p[1], s);
     }
-    if (px < 0) continue;
-    place(px, pz, 0.55);
-    const bush = makeBush(rand);
-    bush.position.set(px, yAt(px, pz), pz);
-    worldRoot.add(bush);
+  }
+  // A scattering outside the named regions so the map has no bald patches
+  for (let i = 0; i < 70; i++) {
+    const s = 0.75 + rand() * 0.45;
+    const x = 3 + rand() * (worldWidth - 6);
+    const z = 3 + rand() * (worldDepth - 6);
+    if (Math.hypot(x - spawnX, z - spawnZ) < treeClearRadius) continue;
+    if (!canPlace(x, z, 1.15 * s)) continue;
+    plantTree(x, z, s);
   }
 
-  for (let i = 0; i < 340; i++) {
+  // --- Undergrowth: thick in the grove, thin elsewhere ---
+  const bushPlan: { zone: Region; count: number }[] = [
+    { zone: regions.grove, count: 90 },
+    { zone: regions.wilds, count: 45 },
+    { zone: regions.garden, count: 40 },
+    { zone: regions.waterside, count: 26 },
+    { zone: regions.meadow, count: 16 },
+  ];
+  for (const plan of bushPlan) {
+    for (let i = 0; i < plan.count; i++) {
+      const p = pickIn(plan.zone, 0.55);
+      if (!p) continue;
+      place(p[0], p[1], 0.55);
+      const bush = makeBush(rand);
+      bush.position.set(p[0], yAt(p[0], p[1]), p[1]);
+      worldRoot.add(bush);
+    }
+  }
+
+  // --- Grass, everywhere, thickest on the open green ---
+  for (let i = 0; i < 1100; i++) {
     const x = rand() * worldWidth;
     const z = rand() * worldDepth;
     const clump = makeGrassClump(rand, x, z);
     clump.position.y = yAt(x, z);
     worldRoot.add(clump);
   }
-
-  for (let i = 0; i < 70; i++) {
-    let px = -1, pz = -1;
-    for (let tries = 0; tries < 8; tries++) {
-      const x = rand() * worldWidth;
-      const z = rand() * worldDepth;
-      if (Math.hypot(x - cx, z - cz) < clearRadius * 0.5) continue;
-      if (!canPlace(x, z, 0.4)) continue;
-      px = x; pz = z;
-      break;
-    }
-    if (px < 0) continue;
-    place(px, pz, 0.4);
-    colliders.push({ x: px, z: pz, r: 0.42 });
-    const rock = makeRock(rand);
-    rock.position.set(px, yAt(px, pz), pz);
-    worldRoot.add(rock);
-    const shadow = makeGroundShadow(0.35);
-    shadow.position.set(px + 0.06, yAt(px, pz) + 0.004, pz + 0.06);
-    worldRoot.add(shadow);
+  for (let i = 0; i < 420; i++) {
+    const a = rand() * Math.PI * 2;
+    const d = Math.sqrt(rand()) * regions.meadow.r;
+    const x = regions.meadow.x + Math.cos(a) * d;
+    const z = regions.meadow.z + Math.sin(a) * d;
+    const clump = makeGrassClump(rand, x, z);
+    clump.position.y = yAt(x, z);
+    worldRoot.add(clump);
   }
 
+  // --- Rocks: the wilds are named for them ---
+  const rockPlan: { zone: Region; count: number }[] = [
+    { zone: regions.wilds, count: 110 },
+    { zone: regions.waterside, count: 34 },
+    { zone: regions.grove, count: 40 },
+    { zone: regions.meadow, count: 12 },
+  ];
+  for (const plan of rockPlan) {
+    for (let i = 0; i < plan.count; i++) {
+      const p = pickIn(plan.zone, 0.4);
+      if (!p) continue;
+      place(p[0], p[1], 0.4);
+      colliders.push({ x: p[0], z: p[1], r: 0.42 });
+      const rock = makeRock(rand);
+      rock.position.set(p[0], yAt(p[0], p[1]), p[1]);
+      worldRoot.add(rock);
+      const shadow = makeGroundShadow(0.35);
+      shadow.position.set(p[0] + 0.06, yAt(p[0], p[1]) + 0.004, p[1] + 0.06);
+      worldRoot.add(shadow);
+    }
+  }
+
+  // --- Flower beds: the garden is mostly beds; a few wildflowers elsewhere ---
   const bedCenters: [number, number][] = [];
-  for (let bed = 0; bed < 14; bed++) {
-    const bx = 3 + rand() * (worldWidth - 6);
-    const bz = 3 + rand() * (worldDepth - 6);
-    if (Math.hypot(bx - cx, bz - cz) < clearRadius) continue;
-    bedCenters.push([bx, bz]);
-    const count = 6 + Math.floor(rand() * 6);
-    for (let i = 0; i < count; i++) {
-      const fx = bx + (rand() - 0.5) * 1.4;
-      const fz = bz + (rand() - 0.5) * 1.4;
-      const flower = makeFlower(rand);
-      flower.position.set(fx, yAt(fx, fz), fz);
-      worldRoot.add(flower);
+  const bedPlan: { zone: Region; count: number; tight: boolean }[] = [
+    { zone: regions.garden, count: 22, tight: true },
+    { zone: regions.meadow, count: 10, tight: false },
+    { zone: regions.waterside, count: 7, tight: false },
+    { zone: regions.grove, count: 5, tight: false },
+  ];
+  for (const plan of bedPlan) {
+    for (let bed = 0; bed < plan.count; bed++) {
+      const p = pickIn(plan.zone, 1.0);
+      if (!p) continue;
+      bedCenters.push(p);
+      const spread = plan.tight ? 1.1 : 2.0;
+      const count = (plan.tight ? 9 : 5) + Math.floor(rand() * 6);
+      for (let i = 0; i < count; i++) {
+        const fx = p[0] + (rand() - 0.5) * spread * 2;
+        const fz = p[1] + (rand() - 0.5) * spread * 2;
+        const flower = makeFlower(rand);
+        flower.position.set(fx, yAt(fx, fz), fz);
+        worldRoot.add(flower);
+      }
     }
   }
-  // Butterflies flutter around half of the flower beds
-  spawnButterflies(worldRoot, bedCenters.filter((_, i) => i % 2 === 0));
+  // Butterflies over roughly a third of the beds
+  spawnButterflies(worldRoot, bedCenters.filter((_, i) => i % 3 === 0));
 
   const lampCoords = lampSpots;
   for (const [lx, lz] of lampCoords) {
@@ -1336,7 +1705,6 @@ export function buildWorld(worldWidth: number, worldDepth: number): WorldHandles
 
   const benchCoords = benchSpots;
   for (const [bx, bz] of benchCoords) {
-    if (Math.hypot(bx - cx, bz - cz) < clearRadius) continue;
     const bench = makeBench(rand);
     bench.position.set(bx, yAt(bx, bz), bz);
     worldRoot.add(bench);
@@ -1367,5 +1735,5 @@ export function buildWorld(worldWidth: number, worldDepth: number): WorldHandles
     colliders.push({ x: pondCenter.x + (i / 2) * cliffHalfWidth, z: cliffZ, r: 1.9 });
   }
 
-  return { scene, worldRoot, sun, fill, ambient, fog, stars, sunDisc, moonDisc, colliders };
+  return { scene, worldRoot, sun, fill, ambient, fog, stars, sunDisc, moonDisc, colliders, canopies };
 }
