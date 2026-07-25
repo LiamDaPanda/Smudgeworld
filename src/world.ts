@@ -47,6 +47,31 @@ function makeToonRamp(): DataTexture {
 }
 const toonRamp = makeToonRamp();
 
+// Terrain height field. Layered sine/cosine noise gives smooth rolling hills
+// without needing a full perlin implementation. Amplitude is intentionally
+// small — think undulations, not mountains, so it stays walkable.
+let terrainAmp = 0.55;
+let flattenCenters: { x: number; z: number; radius: number }[] = [];
+export function setTerrainFlatten(centers: { x: number; z: number; radius: number }[]) {
+  flattenCenters = centers;
+}
+export function sampleGroundHeight(x: number, z: number): number {
+  const base =
+    Math.sin(x * 0.24) * Math.cos(z * 0.21) * 0.55 +
+    Math.sin(x * 0.11 + 1.3) * Math.cos(z * 0.13) * 0.35 +
+    Math.sin(x * 0.6) * Math.cos(z * 0.5) * 0.12;
+  let h = base * terrainAmp;
+  // Flatten around the pond, path etc.
+  for (const c of flattenCenters) {
+    const d = Math.hypot(x - c.x, z - c.z);
+    if (d < c.radius) {
+      const t = d / c.radius; // 0 at center, 1 at edge
+      h *= t * t; // smooth blend down to 0 at center
+    }
+  }
+  return h;
+}
+
 function seededRand(seed: number) {
   let s = seed >>> 0;
   return () => {
@@ -895,11 +920,37 @@ export function buildWorld(worldWidth: number, worldDepth: number): { scene: Sce
   const worldRoot = new Group();
   scene.add(worldRoot);
 
-  const ground = new Mesh(
-    new PlaneGeometry(worldWidth + 60, worldDepth + 60, 1, 1),
-    new MeshBasicMaterial({ map: groundTex, color: new Color("#f4efe6") })
-  );
-  ground.rotation.x = -Math.PI / 2;
+  // Flatten around the pond and the winding path so nothing looks like it's
+  // floating over invisible hills.
+  const pondCenter = { x: worldWidth * 0.72, z: worldDepth * 0.28, radius: 5.5 };
+  setTerrainFlatten([pondCenter]);
+
+  // Subdivided displaced ground. Vertices are shifted in Y by the terrain
+  // height function, then normals are recomputed so the toon material picks
+  // up the facets. flatShading true makes each triangle read distinctly.
+  const gw = worldWidth + 60;
+  const gd = worldDepth + 60;
+  const segsX = 90;
+  const segsZ = 60;
+  const groundGeo = new PlaneGeometry(gw, gd, segsX, segsZ);
+  groundGeo.rotateX(-Math.PI / 2);
+  const pos = groundGeo.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    // Local coords are centered on origin; ground mesh is offset so its
+    // center matches worldWidth/2, worldDepth/2 — convert to world x/z.
+    const wx = pos.getX(i) + worldWidth / 2;
+    const wz = pos.getZ(i) + worldDepth / 2;
+    pos.setY(i, sampleGroundHeight(wx, wz));
+  }
+  groundGeo.computeVertexNormals();
+  const groundMat = new MeshToonMaterial({
+    color: new Color("#e6cfa2"),
+    map: groundTex,
+    gradientMap: toonRamp,
+  });
+  (groundMat as unknown as { flatShading: boolean }).flatShading = true;
+  groundMat.needsUpdate = true;
+  const ground = new Mesh(groundGeo, groundMat);
   ground.position.set(worldWidth / 2, 0, worldDepth / 2);
   worldRoot.add(ground);
 
@@ -941,18 +992,19 @@ export function buildWorld(worldWidth: number, worldDepth: number): { scene: Sce
   const cx = worldWidth / 2;
   const cz = worldDepth / 2;
 
+  const yAt = (x: number, z: number) => sampleGroundHeight(x, z);
+
   for (let i = 0; i < 90; i++) {
     const x = 2 + rand() * (worldWidth - 4);
     const z = 2 + rand() * (worldDepth - 4);
     if (Math.hypot(x - cx, z - cz) < clearRadius) continue;
     const tree = makeTree(rand);
-    tree.position.set(x, 0, z);
+    tree.position.set(x, yAt(x, z), z);
     const s = 0.85 + rand() * 0.35;
     tree.scale.setScalar(s);
     worldRoot.add(tree);
-    // Ground shadow disc beneath each tree
     const shadow = makeGroundShadow(0.9 * s);
-    shadow.position.set(x, 0.003, z);
+    shadow.position.set(x, yAt(x, z) + 0.005, z);
     worldRoot.add(shadow);
   }
 
@@ -961,40 +1013,41 @@ export function buildWorld(worldWidth: number, worldDepth: number): { scene: Sce
     const z = rand() * worldDepth;
     if (Math.hypot(x - cx, z - cz) < clearRadius) continue;
     const bush = makeBush(rand);
-    bush.position.set(x, 0, z);
+    bush.position.set(x, yAt(x, z), z);
     worldRoot.add(bush);
   }
 
   for (let i = 0; i < 340; i++) {
     const x = rand() * worldWidth;
     const z = rand() * worldDepth;
-    worldRoot.add(makeGrassClump(rand, x, z));
+    const clump = makeGrassClump(rand, x, z);
+    clump.position.y = yAt(x, z);
+    worldRoot.add(clump);
   }
 
-  // Rocks scattered across the world
   for (let i = 0; i < 70; i++) {
     const x = rand() * worldWidth;
     const z = rand() * worldDepth;
     if (Math.hypot(x - cx, z - cz) < clearRadius * 0.5) continue;
     const rock = makeRock(rand);
-    rock.position.set(x, 0, z);
+    rock.position.set(x, yAt(x, z), z);
     worldRoot.add(rock);
   }
 
-  // Flower beds — clusters of 6–10 blooms in a small area
   for (let bed = 0; bed < 14; bed++) {
     const bx = 3 + rand() * (worldWidth - 6);
     const bz = 3 + rand() * (worldDepth - 6);
     if (Math.hypot(bx - cx, bz - cz) < clearRadius) continue;
     const count = 6 + Math.floor(rand() * 6);
     for (let i = 0; i < count; i++) {
+      const fx = bx + (rand() - 0.5) * 1.4;
+      const fz = bz + (rand() - 0.5) * 1.4;
       const flower = makeFlower(rand);
-      flower.position.set(bx + (rand() - 0.5) * 1.4, 0, bz + (rand() - 0.5) * 1.4);
+      flower.position.set(fx, yAt(fx, fz), fz);
       worldRoot.add(flower);
     }
   }
 
-  // A few lamp posts as landmarks (in a rough grid so they read as park lighting)
   const lampCoords: [number, number][] = [
     [worldWidth * 0.2, worldDepth * 0.25],
     [worldWidth * 0.78, worldDepth * 0.25],
@@ -1005,12 +1058,11 @@ export function buildWorld(worldWidth: number, worldDepth: number): { scene: Sce
   ];
   for (const [lx, lz] of lampCoords) {
     const lamp = makeLampPost(rand);
-    lamp.position.set(lx, 0, lz);
+    lamp.position.set(lx, yAt(lx, lz), lz);
     lamp.rotation.y = rand() * Math.PI * 2;
     worldRoot.add(lamp);
   }
 
-  // A couple of park benches
   const benchCoords: [number, number][] = [
     [worldWidth * 0.3, worldDepth * 0.5],
     [worldWidth * 0.7, worldDepth * 0.5],
@@ -1019,7 +1071,7 @@ export function buildWorld(worldWidth: number, worldDepth: number): { scene: Sce
   for (const [bx, bz] of benchCoords) {
     if (Math.hypot(bx - cx, bz - cz) < clearRadius) continue;
     const bench = makeBench(rand);
-    bench.position.set(bx, 0, bz);
+    bench.position.set(bx, yAt(bx, bz), bz);
     worldRoot.add(bench);
   }
 
