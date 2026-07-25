@@ -1,4 +1,5 @@
 import { playShutter, playUiTick } from "./audio.ts";
+import { nightAmount, phaseName } from "./daynight.ts";
 import { subjectIllustration } from "./subjects.ts";
 import type { Smudge, Snapshot } from "./types.ts";
 
@@ -146,12 +147,30 @@ function fireShutter() {
     // For photo mode we approximate: focus quality gates the timed shot too
     timingScore = focus > 0.6 ? focus : 0;
   }
-  const clarity = Math.max(0.15, Math.min(1, focus * 0.85 + timingScore * 0.15));
+  let clarity = Math.max(0.15, Math.min(1, focus * 0.85 + timingScore * 0.15));
 
-  setTimeout(() => showResult(clarity), 420);
+  // Condition bonuses, per the design doc: shooting a subject in its element
+  // develops a sharper picture. Night subjects caught after dark, and any
+  // subject caught in the golden light of dawn or dusk, both grade up.
+  const bonuses: { label: string; amount: number }[] = [];
+  const night = nightAmount();
+  if (session.smudge.set === "After Dark" && night > 0.5) {
+    bonuses.push({ label: "Night film", amount: 0.1 });
+  }
+  const phase = phaseName();
+  if (phase === "Dawn" || phase === "Dusk") {
+    bonuses.push({ label: "Golden hour", amount: 0.08 });
+  }
+  if (focus > 0.94) {
+    bonuses.push({ label: "Pin-sharp focus", amount: 0.05 });
+  }
+  for (const b of bonuses) clarity += b.amount;
+  clarity = Math.min(1, clarity);
+
+  setTimeout(() => showResult(clarity, bonuses), 420);
 }
 
-function showResult(clarity: number) {
+function showResult(clarity: number, bonuses: { label: string; amount: number }[] = []) {
   if (!session) return;
   const result = document.getElementById("pv-result")!;
   const thumb = document.getElementById("pv-thumb") as HTMLElement;
@@ -169,7 +188,13 @@ function showResult(clarity: number) {
   thumb.appendChild(c);
 
   nameEl.textContent = session.smudge.name;
-  metaEl.innerHTML = `<strong>${Math.round(clarity * 100)}%</strong> clarity · <span>${session.smudge.set}</span>`;
+  const bonusHtml = bonuses.length
+    ? `<div class="pv-bonuses">${bonuses
+        .map((b) => `<span class="pv-bonus">${b.label} +${Math.round(b.amount * 100)}%</span>`)
+        .join("")}</div>`
+    : "";
+  metaEl.innerHTML =
+    `<strong>${Math.round(clarity * 100)}%</strong> clarity · <span>${session.smudge.set}</span>${bonusHtml}`;
 
   result.classList.add("show");
 
