@@ -199,7 +199,43 @@ export interface WorldBounds {
   maxZ: number;
 }
 
-export function updatePlayer(p: Player, input: InputState, dt: number, bounds: WorldBounds) {
+const PLAYER_RADIUS = 0.32;
+
+/**
+ * Push the player out of any collider they've ended up inside. Because we
+ * resolve position (rather than cancelling the whole move), walking into a
+ * tree at an angle slides you around it instead of sticking you to it.
+ */
+function resolveCollisions(p: Player, colliders: { x: number; z: number; r: number }[]) {
+  for (let pass = 0; pass < 2; pass++) {
+    let moved = false;
+    for (const c of colliders) {
+      const dx = p.worldX - c.x;
+      const dz = p.worldZ - c.z;
+      const minDist = c.r + PLAYER_RADIUS;
+      const d = Math.hypot(dx, dz);
+      if (d < minDist && d > 0.0001) {
+        const push = (minDist - d) / d;
+        p.worldX += dx * push;
+        p.worldZ += dz * push;
+        moved = true;
+      } else if (d <= 0.0001) {
+        // Dead centre: nudge along +X so we don't divide by zero
+        p.worldX += minDist;
+        moved = true;
+      }
+    }
+    if (!moved) break;
+  }
+}
+
+export function updatePlayer(
+  p: Player,
+  input: InputState,
+  dt: number,
+  bounds: WorldBounds,
+  colliders: { x: number; z: number; r: number }[] = []
+) {
   p.cameraRaised = input.cameraHeld;
   const canMove = !p.cameraRaised;
 
@@ -213,6 +249,9 @@ export function updatePlayer(p: Player, input: InputState, dt: number, bounds: W
   if (moving) {
     p.worldX += mx * speed * dt;
     p.worldZ += mz * speed * dt;
+    p.worldX = Math.max(bounds.minX, Math.min(bounds.maxX, p.worldX));
+    p.worldZ = Math.max(bounds.minZ, Math.min(bounds.maxZ, p.worldZ));
+    resolveCollisions(p, colliders);
     p.worldX = Math.max(bounds.minX, Math.min(bounds.maxX, p.worldX));
     p.worldZ = Math.max(bounds.minZ, Math.min(bounds.maxZ, p.worldZ));
 

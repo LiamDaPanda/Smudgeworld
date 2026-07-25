@@ -495,7 +495,7 @@ function update(dt: number) {
   state.time += dt;
   // While the menu/cutscene is up or photo mode is active, freeze the player.
   const input = gameActive && !isPhotoModeActive() ? state.input : idleInput;
-  updatePlayer(state.player, input, dt, bounds);
+  updatePlayer(state.player, input, dt, bounds, world.colliders);
   // Follow terrain height (currently returns 0; kept for future terrain work)
   const y = sampleGroundHeight(state.player.worldX, state.player.worldZ);
   if (state.player.root.position.y !== y) state.player.root.position.y = y;
@@ -532,10 +532,32 @@ function update(dt: number) {
   const camYaw = p.yaw + cameraOrbit;
   const forwardX = -Math.sin(camYaw);
   const forwardZ = -Math.cos(camYaw);
-  const targetX = p.worldX - forwardX * CAM_DISTANCE;
-  const targetZ = p.worldZ - forwardZ * CAM_DISTANCE;
-  const targetY = CAM_HEIGHT;
-  const k = Math.min(1, dt * 4);
+
+  // Camera collision: march back along the boom and stop short of the first
+  // solid we'd otherwise sit inside, so the view never ends up buried in a
+  // tree trunk or behind the waterfall rocks.
+  let boom = CAM_DISTANCE;
+  const steps = 10;
+  for (let i = 1; i <= steps; i++) {
+    const d = (i / steps) * CAM_DISTANCE;
+    const sx = p.worldX - forwardX * d;
+    const sz = p.worldZ - forwardZ * d;
+    let blocked = false;
+    for (const c of world.colliders) {
+      if (Math.hypot(sx - c.x, sz - c.z) < c.r + 0.5) { blocked = true; break; }
+    }
+    if (blocked) { boom = Math.max(2.2, d - CAM_DISTANCE / steps); break; }
+  }
+
+  const targetX = p.worldX - forwardX * boom;
+  const targetZ = p.worldZ - forwardZ * boom;
+  // Drop the camera a little as the boom shortens so it doesn't end up
+  // staring down at the player's hat from directly overhead.
+  const targetY = CAM_HEIGHT * (0.55 + 0.45 * (boom / CAM_DISTANCE));
+  // Pull in fast when newly blocked, ease back out slowly — snapping outward
+  // the instant you clear a tree looks jarring.
+  const currentBoom = Math.hypot(camera.position.x - p.worldX, camera.position.z - p.worldZ);
+  const k = Math.min(1, dt * (boom < currentBoom ? 14 : 5));
   camera.position.x += (targetX - camera.position.x) * k;
   camera.position.z += (targetZ - camera.position.z) * k;
   camera.position.y += (targetY - camera.position.y) * k;

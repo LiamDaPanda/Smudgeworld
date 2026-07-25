@@ -1073,6 +1073,9 @@ function makeStars(worldWidth: number, worldDepth: number): Points {
   return new Points(geo, mat);
 }
 
+/** A solid the player can't walk through, and the camera won't sit inside. */
+export interface Collider { x: number; z: number; r: number }
+
 export interface WorldHandles {
   scene: Scene;
   worldRoot: Group;
@@ -1082,6 +1085,7 @@ export interface WorldHandles {
   fog: Fog;
   stars: Points;
   sunDisc: Group;
+  colliders: Collider[];
 }
 
 export function buildWorld(worldWidth: number, worldDepth: number): WorldHandles {
@@ -1155,6 +1159,11 @@ export function buildWorld(worldWidth: number, worldDepth: number): WorldHandles
     return true;
   };
   const place = (x: number, z: number, r: number) => placedFootprints.push({ x, z, r });
+
+  // Solids the player collides with. Deliberately narrower than the visual
+  // footprint — you block on a tree's trunk, not its overhanging canopy, and
+  // low bushes and flowers stay walk-through.
+  const colliders: Collider[] = [];
 
   // Landmarks (lamps, benches) have fixed positions — register their
   // footprints first so scattered objects avoid them.
@@ -1241,6 +1250,7 @@ export function buildWorld(worldWidth: number, worldDepth: number): WorldHandles
     }
     if (px < 0) continue; // couldn't find room — skip this tree
     place(px, pz, footprint);
+    colliders.push({ x: px, z: pz, r: 0.42 * s }); // trunk only
     const tree = makeTree(rand);
     tree.position.set(px, yAt(px, pz), pz);
     tree.scale.setScalar(s);
@@ -1287,6 +1297,7 @@ export function buildWorld(worldWidth: number, worldDepth: number): WorldHandles
     }
     if (px < 0) continue;
     place(px, pz, 0.4);
+    colliders.push({ x: px, z: pz, r: 0.42 });
     const rock = makeRock(rand);
     rock.position.set(px, yAt(px, pz), pz);
     worldRoot.add(rock);
@@ -1319,6 +1330,7 @@ export function buildWorld(worldWidth: number, worldDepth: number): WorldHandles
     lamp.position.set(lx, yAt(lx, lz), lz);
     lamp.rotation.y = rand() * Math.PI * 2;
     worldRoot.add(lamp);
+    colliders.push({ x: lx, z: lz, r: 0.3 });
   }
 
   const benchCoords = benchSpots;
@@ -1327,6 +1339,7 @@ export function buildWorld(worldWidth: number, worldDepth: number): WorldHandles
     const bench = makeBench(rand);
     bench.position.set(bx, yAt(bx, bz), bz);
     worldRoot.add(bench);
+    colliders.push({ x: bx, z: bz, r: 0.75 });
     const shadow = makeGroundShadow(0.85);
     shadow.position.set(bx + 0.08, yAt(bx, bz) + 0.004, bz + 0.08);
     worldRoot.add(shadow);
@@ -1358,5 +1371,10 @@ export function buildWorld(worldWidth: number, worldDepth: number): WorldHandles
   void new Vector3();
   void makeHillRing;
 
-  return { scene, worldRoot, sun, fill, ambient, fog, stars, sunDisc };
+  // The pond and the waterfall outcrop are solid too — you walk around water,
+  // not across it.
+  colliders.push({ x: pondCenter.x, z: pondCenter.z, r: pondCenter.radius * 0.92 });
+  colliders.push({ x: pondCenter.x, z: pondCenter.z - 3.5, r: 2.6 });
+
+  return { scene, worldRoot, sun, fill, ambient, fog, stars, sunDisc, colliders };
 }
