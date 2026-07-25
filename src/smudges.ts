@@ -15,6 +15,9 @@ import type { Smudge } from "./types.ts";
 
 const NAMES_COMMON = ["Park Cat", "Bench Sitter", "Pigeon Council", "Kite Runner", "Fountain Diver"];
 const NAMES_TIMED = ["Comet Sparrow", "Blink Fox"];
+// Waterside subjects live in a ring around the pond, so where you stand
+// matters as much as when.
+const NAMES_WATER = ["Heron", "Koi Shadow", "Dragonfly", "Frog Chorus"];
 
 function rand(seed: number) {
   let s = seed >>> 0;
@@ -91,7 +94,11 @@ function makeIndicatorRing(radius: number): Mesh {
   return ring;
 }
 
-export function createSmudges(worldWidth: number, worldDepth: number): Smudge[] {
+export function createSmudges(
+  worldWidth: number,
+  worldDepth: number,
+  pond?: { x: number; z: number; radius: number }
+): Smudge[] {
   const r = rand(1337);
   const smudges: Smudge[] = [];
   const clearRadius = 4;
@@ -105,7 +112,9 @@ export function createSmudges(worldWidth: number, worldDepth: number): Smudge[] 
     }
     return [worldWidth * 0.75, worldDepth * 0.75];
   };
-  for (let i = 0; i < 6; i++) {
+  // One smudge per named subject — looping past the end of the name list
+  // would spawn a duplicate that can never be a separate collection entry.
+  for (let i = 0; i < NAMES_COMMON.length; i++) {
     const radius = 0.55 + r() * 0.2;
     const sprite = makeSmudgeSprite(radius);
     const [x, z] = pick();
@@ -126,11 +135,11 @@ export function createSmudges(worldWidth: number, worldDepth: number): Smudge[] 
       homeX: x,
       homeZ: z,
       wanderRadius: 0.7 + r() * 0.8,
-      name: NAMES_COMMON[i % NAMES_COMMON.length],
+      name: NAMES_COMMON[i],
       set: "Park Life",
     });
   }
-  for (let i = 0; i < 2; i++) {
+  for (let i = 0; i < NAMES_TIMED.length; i++) {
     const radius = 0.5;
     const sprite = makeSmudgeSprite(radius);
     const [x, z] = pick();
@@ -154,10 +163,45 @@ export function createSmudges(worldWidth: number, worldDepth: number): Smudge[] 
       homeZ: z,
       wanderRadius: 1.1 + r() * 0.9, // night subjects roam a bit wider
       timedWindow: { start: 0, end: 0 },
-      name: NAMES_TIMED[i % NAMES_TIMED.length],
+      name: NAMES_TIMED[i],
       set: "After Dark",
     });
   }
+
+  // Waterside: spaced evenly around the pond bank so all four are findable
+  // once you know where to look.
+  if (pond) {
+    for (let i = 0; i < NAMES_WATER.length; i++) {
+      const radius = 0.5 + r() * 0.15;
+      const sprite = makeSmudgeSprite(radius);
+      const angle = (i / NAMES_WATER.length) * Math.PI * 2 + r() * 0.5;
+      const dist = pond.radius + 1.6 + r() * 1.2;
+      const x = pond.x + Math.cos(angle) * dist;
+      const z = pond.z + Math.sin(angle) * dist;
+      const y = 0.8 + r() * 0.4;
+      sprite.position.set(x, y, z);
+      const ring = makeIndicatorRing(0.7);
+      ring.position.set(x, 0.02, z);
+      smudges.push({
+        id: `water-${i}`,
+        kind: "common",
+        worldPos: new Vector3(x, y, z),
+        radius,
+        wobbleSeed: r() * 100,
+        visible: true,
+        sprite,
+        indicator: ring,
+        captured: false,
+        homeX: x,
+        homeZ: z,
+        // Kept tight so they don't wander out over the water
+        wanderRadius: 0.5 + r() * 0.4,
+        name: NAMES_WATER[i],
+        set: "Waterside",
+      });
+    }
+  }
+
   return smudges;
 }
 

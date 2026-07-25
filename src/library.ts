@@ -14,6 +14,11 @@ const SETS: SetDef[] = [
     reward: 250,
   },
   {
+    name: "Waterside",
+    subjects: ["Heron", "Koi Shadow", "Dragonfly", "Frog Chorus"],
+    reward: 320,
+  },
+  {
     name: "After Dark",
     subjects: ["Comet Sparrow", "Blink Fox"],
     reward: 400,
