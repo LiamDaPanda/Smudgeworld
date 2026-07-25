@@ -1,8 +1,12 @@
 import {
   CanvasTexture,
   Color,
+  DoubleSide,
   Group,
+  Mesh,
+  MeshBasicMaterial,
   NormalBlending,
+  RingGeometry,
   Sprite,
   SpriteMaterial,
   Vector3,
@@ -70,6 +74,23 @@ function makeSmudgeSprite(radius: number): Group {
   return g;
 }
 
+// Pulsing ring on the ground under each smudge so it's spottable from
+// further away. Grey while un-captured, warm green once photographed.
+function makeIndicatorRing(radius: number): Mesh {
+  const ring = new Mesh(
+    new RingGeometry(radius * 1.05, radius * 1.35, 40),
+    new MeshBasicMaterial({
+      color: new Color("#4a463d"),
+      transparent: true,
+      opacity: 0.55,
+      side: DoubleSide,
+      depthWrite: false,
+    })
+  );
+  ring.rotation.x = -Math.PI / 2;
+  return ring;
+}
+
 export function createSmudges(worldWidth: number, worldDepth: number): Smudge[] {
   const r = rand(1337);
   const smudges: Smudge[] = [];
@@ -90,6 +111,8 @@ export function createSmudges(worldWidth: number, worldDepth: number): Smudge[] 
     const [x, z] = pick();
     const y = 0.9 + r() * 0.5;
     sprite.position.set(x, y, z);
+    const ring = makeIndicatorRing(0.7);
+    ring.position.set(x, 0.02, z);
     smudges.push({
       id: `common-${i}`,
       kind: "common",
@@ -98,6 +121,8 @@ export function createSmudges(worldWidth: number, worldDepth: number): Smudge[] 
       wobbleSeed: r() * 100,
       visible: true,
       sprite,
+      indicator: ring,
+      captured: false,
       name: NAMES_COMMON[i % NAMES_COMMON.length],
       set: "Park Life",
     });
@@ -109,6 +134,9 @@ export function createSmudges(worldWidth: number, worldDepth: number): Smudge[] 
     const y = 1.1 + r() * 0.3;
     sprite.position.set(x, y, z);
     sprite.visible = false;
+    const ring = makeIndicatorRing(0.7);
+    ring.position.set(x, 0.02, z);
+    ring.visible = false;
     smudges.push({
       id: `timed-${i}`,
       kind: "timed",
@@ -117,6 +145,8 @@ export function createSmudges(worldWidth: number, worldDepth: number): Smudge[] 
       wobbleSeed: r() * 100,
       visible: false,
       sprite,
+      indicator: ring,
+      captured: false,
       timedWindow: { start: 0, end: 0 },
       name: NAMES_TIMED[i % NAMES_TIMED.length],
       set: "After Dark",
@@ -126,8 +156,14 @@ export function createSmudges(worldWidth: number, worldDepth: number): Smudge[] 
 }
 
 export function attachSmudges(smudges: Smudge[], worldRoot: Group) {
-  for (const s of smudges) worldRoot.add(s.sprite);
+  for (const s of smudges) {
+    worldRoot.add(s.sprite);
+    if (s.indicator) worldRoot.add(s.indicator);
+  }
 }
+
+const capturedColor = new Color("#4a7048");
+const activeColor = new Color("#4a463d");
 
 export function updateSmudges(smudges: Smudge[], time: number) {
   for (const s of smudges) {
@@ -142,9 +178,18 @@ export function updateSmudges(smudges: Smudge[], time: number) {
         s.visible = false;
       }
       s.sprite.visible = s.visible;
+      if (s.indicator) s.indicator.visible = s.visible;
     }
     // Idle wobble
     const wobble = Math.sin(time * 2 + s.wobbleSeed) * 0.05;
     s.sprite.position.set(s.worldPos.x, s.worldPos.y + wobble, s.worldPos.z);
+    // Pulse the indicator ring in scale + opacity
+    if (s.indicator && s.indicator.visible) {
+      const pulse = 1 + Math.sin(time * 2.4 + s.wobbleSeed) * 0.08;
+      s.indicator.scale.set(pulse, pulse, 1);
+      const mat = s.indicator.material as MeshBasicMaterial;
+      mat.color.copy(s.captured ? capturedColor : activeColor);
+      mat.opacity = s.captured ? 0.35 : (0.4 + Math.sin(time * 2.4 + s.wobbleSeed) * 0.15);
+    }
   }
 }

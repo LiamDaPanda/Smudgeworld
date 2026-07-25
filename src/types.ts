@@ -8,6 +8,8 @@ export interface InputState {
   aimX: number;
   aimY: number;
   consumeSnap: () => boolean;
+  // Camera orbit — accumulates drag delta from right-mouse or right-half touch.
+  consumeCameraYaw: () => number;
 }
 
 export interface Player {
@@ -32,6 +34,8 @@ export interface Smudge {
   wobbleSeed: number;
   visible: boolean;
   sprite: Group;
+  indicator?: import("three").Mesh;
+  captured: boolean;
   timedWindow?: { start: number; end: number };
   name: string;
   set: string;

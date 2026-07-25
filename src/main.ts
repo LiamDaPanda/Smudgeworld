@@ -1,6 +1,6 @@
 import { PerspectiveCamera, WebGLRenderer } from "three";
 import { createInput } from "./input.ts";
-import { buildWorld, sampleGroundHeight } from "./world.ts";
+import { buildWorld, sampleGroundHeight, updateAtmosphere } from "./world.ts";
 import { createPlayer, updatePlayer } from "./player.ts";
 import { attachSmudges, createSmudges, updateSmudges } from "./smudges.ts";
 import { hideViewfinder } from "./camera.ts";
@@ -242,8 +242,13 @@ function showToast(msg: string, ms = 2600) {
 const CAM_DISTANCE = 6.5;
 const CAM_HEIGHT = 3.4;
 const CAM_LOOK_HEIGHT = 1.3;
+// User-controlled additional yaw offset for the camera around the player.
+let cameraOrbit = 0;
 
-const idleInput = { moveX: 0, moveZ: 0, cameraHeld: false, aimX: 0, aimY: 0, consumeSnap: () => false };
+const idleInput = {
+  moveX: 0, moveZ: 0, cameraHeld: false, aimX: 0, aimY: 0,
+  consumeSnap: () => false, consumeCameraYaw: () => 0,
+};
 
 // Proximity to smudges — updated each frame so the prompt tracks the nearest.
 const PROX_RADIUS = 3.5;
@@ -280,6 +285,7 @@ function launchPhotoIfPossible() {
   document.getElementById("prox-prompt")?.classList.remove("show");
   startPhotoMode(s, (shot) => {
     if (!shot) return;
+    s.captured = true;
     const result = addSnapshot(shot);
     state.snapshotCount += 1;
     state.coins += Math.round(shot.clarity * 10);
@@ -319,12 +325,14 @@ function update(dt: number) {
   // While the menu/cutscene is up or photo mode is active, freeze the player.
   const input = gameActive && !isPhotoModeActive() ? state.input : idleInput;
   updatePlayer(state.player, input, dt, bounds);
-  // Follow terrain height
-  state.player.root.position.y = sampleGroundHeight(state.player.worldX, state.player.worldZ);
+  // Follow terrain height (currently returns 0; kept for future terrain work)
+  const y = sampleGroundHeight(state.player.worldX, state.player.worldZ);
+  if (state.player.root.position.y !== y) state.player.root.position.y = y;
   updateSmudges(state.smudges, state.time);
   updatePond(state.pond, state.time);
   updateFish(state.fish, state.time);
   updateWaterfall(state.waterfall, state.time);
+  updateAtmosphere(dt);
   if (gameActive && !isPhotoModeActive()) updateProximity();
   else if (isPhotoModeActive()) {
     // hide prompt during photo mode
@@ -332,12 +340,12 @@ function update(dt: number) {
   }
 
   const p = state.player;
-  // "Behind" the player means opposite of the direction they're facing.
-  // yaw=0 faces +X, yaw=PI faces -X. Player forward = (sin(yaw), 0, cos(yaw))
-  // — actually with our convention: forward = (-sin(yaw), 0, -cos(yaw)).
-  // Camera sits at player - forward * distance.
-  const forwardX = -Math.sin(p.yaw);
-  const forwardZ = -Math.cos(p.yaw);
+  cameraOrbit += state.input.consumeCameraYaw();
+  // Camera sits behind the player, plus the user's orbit offset. This lets
+  // the player rotate the view around themselves.
+  const camYaw = p.yaw + cameraOrbit;
+  const forwardX = -Math.sin(camYaw);
+  const forwardZ = -Math.cos(camYaw);
   const targetX = p.worldX - forwardX * CAM_DISTANCE;
   const targetZ = p.worldZ - forwardZ * CAM_DISTANCE;
   const targetY = CAM_HEIGHT;
