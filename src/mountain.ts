@@ -93,36 +93,46 @@ export function createMountain(cx: number, cz: number, cliffWidth: number, cliff
   // as looming triangles crowding the falls rather than as a range on the
   // horizon. They're pushed out to 40-70 units, far enough that the scene fog
   // does the aerial-perspective work for us. ---
+  // Peaks are squashed and sheared per-peak rather than dropped in as upright
+  // cones on an even pitch: identical isoceles triangles at regular spacing
+  // read as a row of paper tents, not a range.
   const bands = [
-    { z: -34, color: "#8f8a80", count: 5, h: 16, spread: 48 },
-    { z: -50, color: "#a3a5ad", count: 6, h: 23, spread: 72 },
-    { z: -66, color: "#bcc0c9", count: 6, h: 30, spread: 96 },
+    { z: -34, color: "#8f8a80", count: 7, h: 16, spread: 56, outline: 0.5 },
+    { z: -50, color: "#a5a7ae", count: 8, h: 23, spread: 82, outline: 0.3 },
+    { z: -66, color: "#c2c6ce", count: 8, h: 30, spread: 108, outline: 0.16 },
   ];
   for (const band of bands) {
     for (let i = 0; i < band.count; i++) {
       const t = (i + 0.5) / band.count;
-      const px = cx + (t - 0.5) * band.spread + (rand() - 0.5) * 6;
-      const h = band.h * (0.7 + rand() * 0.6);
-      const r = h * (0.42 + rand() * 0.18);
+      // Jitter along the ridge is a large fraction of the spacing, so peaks
+      // overlap into ridgelines instead of standing apart in a row.
+      const px = cx + (t - 0.5) * band.spread + (rand() - 0.5) * (band.spread / band.count) * 1.5;
+      const h = band.h * (0.55 + rand() * 0.85);
+      const r = h * (0.4 + rand() * 0.3);
       const peak = outlined(
         new ConeGeometry(r, h, 5 + Math.floor(rand() * 3), 2),
         new Color(band.color),
-        { threshold: 22, outlineOpacity: 0.45 }
+        { threshold: 22, outlineOpacity: band.outline }
       );
-      peak.position.set(px, h / 2 - 1.5, cz + band.z + (rand() - 0.5) * 5);
+      peak.position.set(px, h / 2 - 1.5, cz + band.z + (rand() - 0.5) * 9);
       peak.rotation.y = rand() * Math.PI;
+      // Lean and stretch: a peak wider than it is tall reads as a shoulder,
+      // a leaning one as a weathered horn.
+      peak.rotation.z = (rand() - 0.5) * 0.22;
+      peak.scale.set(0.8 + rand() * 0.9, 1, 0.8 + rand() * 0.5);
       group.add(peak);
 
       // Snow cap on the tallest of the far peaks
-      if (h > band.h * 1.05) {
+      if (h > band.h * 1.15) {
         const capH = h * 0.26;
         const cap = outlined(
           new ConeGeometry(r * 0.29, capH, 6, 1),
           new Color("#eef1f4"),
-          { threshold: 24, outlineOpacity: 0.35 }
+          { threshold: 24, outlineOpacity: 0.3 }
         );
         cap.position.set(px, h - capH / 2 - 1.5, cz + band.z + 0.02);
         cap.rotation.copy(peak.rotation);
+        cap.scale.copy(peak.scale);
         group.add(cap);
       }
     }
@@ -136,9 +146,26 @@ export function createMountain(cx: number, cz: number, cliffWidth: number, cliff
   const rockTex = makeRockTexture("#a29c90", 3311);
   const wallW = cliffWidth * 1.7;
   const wallH = cliffHeight * 1.5;
+
+  // A solid mass behind the wall first. The wall itself is a plane, and a
+  // plane's straight top and sides seen against open sky is exactly what made
+  // the falls look like a signboard propped up in a field. With a bigger,
+  // darker landform behind it, the wall reads as a face cut into rock and
+  // never shows a silhouette of its own.
+  const backing = outlined(
+    new ConeGeometry(wallW * 1.25, wallH * 1.7, 6, 1),
+    new Color("#8b8578"),
+    { threshold: 26, outlineOpacity: 0.45 }
+  );
+  backing.position.set(cx, (wallH * 1.7) / 2 - 1.6, cz - wallW * 0.75);
+  backing.scale.set(1, 1, 0.85);
+  group.add(backing);
+
   const wall = new Mesh(
     new PlaneGeometry(wallW, wallH),
-    new MeshBasicMaterial({ map: rockTex, color: new Color("#b3ada0"), side: DoubleSide })
+    // Darker than the rock around it: this is the shaded inside of a notch,
+    // and lighting it like a sunlit face is what made it pop forward.
+    new MeshBasicMaterial({ map: rockTex, color: new Color("#9b9488"), side: DoubleSide })
   );
   wall.position.set(cx, wallH / 2 - 0.6, cz - 0.35);
   group.add(wall);
@@ -159,20 +186,53 @@ export function createMountain(cx: number, cz: number, cliffWidth: number, cliff
   crestGeo.setAttribute("position", new Float32BufferAttribute(crest, 3));
   group.add(new LineSegments(crestGeo, new LineBasicMaterial({ color: INK, transparent: true, opacity: 0.6 })));
 
-  // Buttresses either side of the fall, angled inward. Kept below the wall
-  // crest so they frame the water rather than competing with it.
+  // Buttresses either side of the fall, angled inward. They deliberately
+  // straddle the wall's vertical edges: left to itself the wall is a plane,
+  // and a plane's two straight sides against open sky is what made it read as
+  // a slab propped up in a field.
   for (const side of [-1, 1]) {
-    const bw = cliffWidth * 0.62;
-    const bh = wallH * 0.66;
+    const bw = cliffWidth * 0.72;
+    // Taller than the wall on purpose, so the crest of the notch sits between
+    // two rock masses rather than against the sky.
+    const bh = wallH * 1.16;
     const buttress = outlined(
       new ConeGeometry(bw, bh, 4, 1),
       new Color(side < 0 ? "#8a8479" : "#948e82"),
       { threshold: 24, outlineOpacity: 0.6 }
     );
-    buttress.position.set(cx + side * (cliffWidth * 1.15), bh / 2 - 0.6, cz + 0.25);
+    buttress.position.set(cx + side * (wallW / 2), bh / 2 - 0.6, cz + 0.25);
     buttress.rotation.y = Math.PI / 4;
     buttress.scale.set(1, 1, 0.7);
     group.add(buttress);
+
+    // An outer shoulder beyond each buttress, running the cliff line down to
+    // ground level so the massif meets the grass on a slope, not a step.
+    const sh = wallH * 0.42;
+    const shoulder = outlined(
+      new ConeGeometry(cliffWidth * 1.1, sh, 5, 1),
+      new Color(side < 0 ? "#979183" : "#8f897d"),
+      { threshold: 26, outlineOpacity: 0.45 }
+    );
+    shoulder.position.set(cx + side * (wallW * 0.82), sh / 2 - 0.9, cz - 0.6);
+    shoulder.rotation.y = rand() * Math.PI;
+    shoulder.scale.set(1, 1, 0.8);
+    group.add(shoulder);
+  }
+
+  // Talus along the foot of the wall — a rubble line so the cliff doesn't
+  // meet flat grass along a ruler-straight horizontal edge.
+  for (let i = 0; i < 16; i++) {
+    const t = i / 15;
+    const bx = cx + (t - 0.5) * wallW * 1.5;
+    // Thinned in front of the falls so the plunge pool stays visible.
+    if (Math.abs(bx - cx) < cliffWidth * 0.45 && rand() < 0.75) continue;
+    const r = 0.28 + rand() * 0.45;
+    const b = outlined(new IcosahedronGeometry(r, 0), new Color(["#8d877c", "#9a948a", "#847e73"][Math.floor(rand() * 3)]),
+                       { threshold: 28, outlineOpacity: 0.6 });
+    b.position.set(bx, r * 0.35 - 0.1, cz + 0.1 + rand() * 0.5);
+    b.rotation.set(rand(), rand() * Math.PI, rand());
+    b.scale.set(1.3, 0.62, 1);
+    group.add(b);
   }
 
   // --- Scree: boulders tumbling from the cliff foot toward the water. Kept

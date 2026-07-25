@@ -35,6 +35,25 @@ A snapshot's **grade** is how sharp it develops:
 - Completing a set pays out coins and camera gear — zoom lenses, faster shutters, night film.
 - Gear unlocks deeper zones hiding rarer smudges.
 
+## The park
+
+One continuous 120x90 map, laid out as five places rather than an even
+scatter of trees:
+
+- **The green** — the central lawn you spawn on. Open, bright, a gravel
+  circle where four walks meet.
+- **The grove** — mature closed canopy, dark floor, leaf litter, thick
+  undergrowth. You lose the horizon in here.
+- **The garden** — ornamental. Small trees, flower beds, benches.
+- **The wilds** — sparse and stunted, rock-strewn, dry olive ground.
+- **The waterside** — the pond, its sandy shore, and the massif behind it
+  with the falls coming down a notch in the cliff.
+
+Walks spoke out from the green to each of the others, bending around the
+water and petering out where they arrive rather than stopping dead. Nothing
+plants on a walk, in the water, or on the sight line from the pond's south
+shore to the falls.
+
 ## Narrative frame
 
 Deliberately thin — the story exists to make the economy feel inevitable

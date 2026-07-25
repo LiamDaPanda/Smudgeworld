@@ -381,66 +381,92 @@ function makeBoulder(r: number, hex: string, detail = 0): Group {
 export function createWaterfall(cx: number, cz: number, width: number, height: number): Waterfall {
   const group = new Group();
 
-  // Rocky outcrop: a mound of boulders the waterfall actually emerges from,
-  // so it doesn't read as a lone slab standing in a field. Big stones in
-  // back rise to the lip; flanks step down; small stones scatter the front.
+  // Plunge-pool apron. This used to be a tall mound the water emerged from,
+  // back when the falls stood alone in a field — now that the massif supplies
+  // the cliff, that mound sat squarely in front of the water and hid the whole
+  // fall from the pond. What's left is low rock at the flanks only, with the
+  // centre kept clear so the water runs to the surface uninterrupted.
   const boulderSpecs: { x: number; z: number; r: number; ys: number; hex: string }[] = [
-    { x: 0,     z: -1.4, r: 2.3, ys: 1.25, hex: "#7d766b" }, // center back — tallest
-    { x: -1.9,  z: -0.9, r: 1.7, ys: 1.1,  hex: "#8a8478" },
-    { x: 1.8,   z: -1.0, r: 1.8, ys: 1.05, hex: "#948d80" },
-    { x: -2.4,  z: 0.3,  r: 1.05, ys: 0.9, hex: "#8a8478" },
-    { x: 2.3,   z: 0.2,  r: 1.1, ys: 0.85, hex: "#7d766b" },
-    { x: -1.5,  z: 0.9,  r: 0.6, ys: 0.8,  hex: "#948d80" },
-    { x: 1.4,   z: 1.0,  r: 0.55, ys: 0.75, hex: "#8a8478" },
+    { x: -1.75, z: -0.5, r: 1.05, ys: 0.62, hex: "#8a8478" },
+    { x: 1.85,  z: -0.6, r: 1.1,  ys: 0.58, hex: "#948d80" },
+    { x: -2.45, z: 0.45, r: 0.72, ys: 0.55, hex: "#7d766b" },
+    { x: 2.4,   z: 0.4,  r: 0.68, ys: 0.6,  hex: "#8a8478" },
+    { x: -1.35, z: 0.95, r: 0.4,  ys: 0.5,  hex: "#948d80" },
+    { x: 1.5,   z: 1.0,  r: 0.38, ys: 0.5,  hex: "#8a8478" },
   ];
   for (const s of boulderSpecs) {
     const b = makeBoulder(s.r, s.hex);
-    b.position.set(cx + s.x, s.r * 0.5 * s.ys, cz + s.z);
+    b.position.set(cx + s.x, s.r * 0.35 * s.ys, cz + s.z);
     b.scale.set(1, s.ys, 0.85);
     b.rotation.y = (s.x * 3.1 + s.z) % Math.PI;
     group.add(b);
   }
 
-  // A couple of dark shrubs clinging to the top of the outcrop
-  const shrubA = makeBoulder(0.45, "#4a6a3a", 0);
-  shrubA.position.set(cx - 1.3, height * 0.82, cz - 0.9);
+  // A couple of dark shrubs at the foot of the chute, tucked against the
+  // flanking rocks. They used to cling to the cliff face at mid-height, where
+  // with nothing under them they read as green blocks stuck to a wall.
+  const shrubA = makeBoulder(0.4, "#4a6a3a", 0);
+  shrubA.position.set(cx - width * 0.82, 0.26, cz + 0.15);
+  shrubA.scale.set(1, 0.8, 0.9);
   group.add(shrubA);
-  const shrubB = makeBoulder(0.35, "#3f5c33", 0);
-  shrubB.position.set(cx + 1.5, height * 0.72, cz - 0.8);
+  const shrubB = makeBoulder(0.32, "#3f5c33", 0);
+  shrubB.position.set(cx + width * 0.86, 0.2, cz + 0.3);
+  shrubB.scale.set(1, 0.8, 0.9);
   group.add(shrubB);
 
-  // Stone slab (rock cliff face) directly behind the water
-  const rock = new Mesh(
-    new PlaneGeometry(width * 1.4, height * 1.1),
-    new MeshBasicMaterial({ color: new Color("#8a8073") })
-  );
-  rock.position.set(cx, height / 2, cz - 0.05);
-  group.add(rock);
+  // No stone slab behind the water: the massif's cliff wall sits right behind
+  // this and two overlapping rectangles of grey read as a screen rather than
+  // a rock face.
 
   // Source lip: a small dark notch at the top where the water emerges, so
   // the stream visibly comes from inside the rocks rather than thin air.
+  // Kept shallow and only slightly darker than the rock behind it: at full
+  // contrast and full width this read as a lintel over a doorway.
   const lip = new Mesh(
-    new PlaneGeometry(width * 0.7, 0.35),
-    new MeshBasicMaterial({ color: new Color("#5a544c") })
+    new PlaneGeometry(width * 0.82, 0.16),
+    new MeshBasicMaterial({ color: new Color("#7a7268"), transparent: true, opacity: 0.85 })
   );
-  lip.position.set(cx, height + 0.1, cz + 0.02);
+  lip.position.set(cx, height + 0.02, cz + 0.02);
   group.add(lip);
 
-  // Sketchy stone outline
+  // A ragged ink line along the lip so the water visibly breaks over an edge
+  // of rock rather than starting at a ruled horizontal.
+  const lipPts: number[] = [];
+  for (let i = 0; i < 18; i++) {
+    const t = i / 18;
+    const tn = (i + 1) / 18;
+    const lx = cx - width * 0.46 + t * width * 0.92;
+    const lxn = cx - width * 0.46 + tn * width * 0.92;
+    lipPts.push(
+      lx, height + 0.08 + Math.sin(t * 13.7) * 0.07, cz + 0.03,
+      lxn, height + 0.08 + Math.sin(tn * 13.7) * 0.07, cz + 0.03
+    );
+  }
+  const lipGeo = new BufferGeometry();
+  lipGeo.setAttribute("position", new Float32BufferAttribute(lipPts, 3));
+  group.add(new LineSegments(lipGeo, new LineBasicMaterial({
+    color: new Color("#4a463d"), transparent: true, opacity: 0.7,
+  })));
+
+  // Ink lines down the sides of the chute, where the water has cut into the
+  // rock. These belong to the water, not to a slab, so they wobble inward as
+  // they descend rather than running as two straight verticals.
   const rockOutline = new BufferGeometry();
-  const rw = width * 0.7;
-  const rh = height * 0.55;
   const outlinePts: number[] = [];
   const segs = 20;
   for (let i = 0; i <= segs; i++) {
     const t = i / segs;
-    const y = t * (rh * 2);
-    const dx = Math.sin(t * 6 + 0.7) * 0.15;
-    outlinePts.push(cx - rw + dx, y, cz - 0.04, cx - rw + dx, y + (rh * 2) / segs, cz - 0.04);
-    outlinePts.push(cx + rw - dx, y, cz - 0.04, cx + rw - dx, y + (rh * 2) / segs, cz - 0.04);
+    const y = t * height;
+    const yn = (t + 1 / segs) * height;
+    const rw = width * (0.62 + t * 0.14);
+    const rwn = width * (0.62 + (t + 1 / segs) * 0.14);
+    const dx = Math.sin(t * 6 + 0.7) * 0.12;
+    const dxn = Math.sin((t + 1 / segs) * 6 + 0.7) * 0.12;
+    outlinePts.push(cx - rw + dx, y, cz - 0.04, cx - rwn + dxn, yn, cz - 0.04);
+    outlinePts.push(cx + rw - dx, y, cz - 0.04, cx + rwn - dxn, yn, cz - 0.04);
   }
   rockOutline.setAttribute("position", new Float32BufferAttribute(outlinePts, 3));
-  group.add(new LineSegments(rockOutline, new LineBasicMaterial({ color: new Color("#4a463d"), transparent: true, opacity: 0.85 })));
+  group.add(new LineSegments(rockOutline, new LineBasicMaterial({ color: new Color("#4a463d"), transparent: true, opacity: 0.55 })));
 
   // Water backing plane so strands read as water, not just floating lines
   const water = new Mesh(
