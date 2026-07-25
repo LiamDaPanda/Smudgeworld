@@ -282,7 +282,194 @@ function drawBlinkFox(d: DrawCtx) {
   ctx.stroke();
 }
 
+function drawHeron(d: DrawCtx) {
+  const { ctx, s } = d;
+  // reeds behind
+  ctx.strokeStyle = "#4a6a3a";
+  for (let i = 0; i < 5; i++) {
+    const x = s * (0.14 + i * 0.05);
+    ctx.beginPath();
+    ctx.moveTo(x, s * 0.85);
+    ctx.quadraticCurveTo(x - s * 0.02, s * 0.6, x + s * 0.01, s * 0.42);
+    ctx.stroke();
+  }
+  ctx.strokeStyle = "#1a1a1a";
+  // water line
+  ctx.fillStyle = "#a5c0d0";
+  ctx.beginPath();
+  ctx.ellipse(s * 0.5, s * 0.86, s * 0.46, s * 0.07, 0, 0, Math.PI * 2);
+  ctx.fill(); ctx.stroke();
+  // long legs
+  ctx.beginPath();
+  ctx.moveTo(s * 0.52, s * 0.84); ctx.lineTo(s * 0.53, s * 0.6);
+  ctx.moveTo(s * 0.58, s * 0.84); ctx.lineTo(s * 0.56, s * 0.6);
+  ctx.stroke();
+  // body
+  ctx.fillStyle = "#c3c9d2";
+  ctx.beginPath();
+  ctx.ellipse(s * 0.55, s * 0.52, s * 0.13, s * 0.09, -0.25, 0, Math.PI * 2);
+  ctx.fill(); ctx.stroke();
+  // long neck (S curve)
+  ctx.beginPath();
+  ctx.moveTo(s * 0.5, s * 0.48);
+  ctx.quadraticCurveTo(s * 0.4, s * 0.38, s * 0.46, s * 0.28);
+  ctx.quadraticCurveTo(s * 0.5, s * 0.2, s * 0.55, s * 0.22);
+  ctx.lineWidth = 5;
+  ctx.stroke();
+  ctx.lineWidth = 2;
+  // head
+  ctx.fillStyle = "#c3c9d2";
+  ctx.beginPath();
+  ctx.ellipse(s * 0.57, s * 0.21, s * 0.045, s * 0.032, 0.2, 0, Math.PI * 2);
+  ctx.fill(); ctx.stroke();
+  // beak
+  ctx.fillStyle = "#d8b25a";
+  ctx.beginPath();
+  ctx.moveTo(s * 0.61, s * 0.21); ctx.lineTo(s * 0.74, s * 0.25); ctx.lineTo(s * 0.61, s * 0.24);
+  ctx.closePath();
+  ctx.fill(); ctx.stroke();
+  // eye
+  ctx.fillStyle = "#1a1a1a";
+  ctx.beginPath(); ctx.arc(s * 0.585, s * 0.2, 2, 0, Math.PI * 2); ctx.fill();
+}
+
+function drawKoiShadow(d: DrawCtx) {
+  const { ctx, s } = d;
+  // pond surface fills the frame
+  ctx.fillStyle = "#8fb0c4";
+  ctx.fillRect(0, 0, s, s);
+  // surface hatch
+  ctx.strokeStyle = "rgba(26,26,26,0.25)";
+  for (let i = 0; i < 22; i++) {
+    const y = Math.random() * s;
+    const x = Math.random() * s;
+    const w = s * (0.06 + Math.random() * 0.1);
+    ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + w, y); ctx.stroke();
+  }
+  // two koi seen from above, one bright one pale
+  const koi = (cx: number, cy: number, rot: number, fill: string, scale: number) => {
+    ctx.save();
+    ctx.translate(cx, cy); ctx.rotate(rot); ctx.scale(scale, scale);
+    ctx.fillStyle = fill;
+    ctx.strokeStyle = "#1a1a1a";
+    ctx.beginPath();
+    ctx.ellipse(0, 0, s * 0.13, s * 0.055, 0, 0, Math.PI * 2);
+    ctx.fill(); ctx.stroke();
+    // tail
+    ctx.beginPath();
+    ctx.moveTo(-s * 0.12, 0);
+    ctx.lineTo(-s * 0.2, -s * 0.05);
+    ctx.lineTo(-s * 0.2, s * 0.05);
+    ctx.closePath();
+    ctx.fill(); ctx.stroke();
+    ctx.restore();
+  };
+  koi(s * 0.42, s * 0.44, -0.3, "#e08a4a", 1);
+  koi(s * 0.62, s * 0.66, 0.5, "#f0e6d8", 0.8);
+  // ripple ring
+  ctx.strokeStyle = "rgba(244,239,230,0.6)";
+  ctx.beginPath(); ctx.arc(s * 0.5, s * 0.5, s * 0.34, 0, Math.PI * 2); ctx.stroke();
+}
+
+function drawDragonfly(d: DrawCtx) {
+  const { ctx, s } = d;
+  const cx = s * 0.5, cy = s * 0.5;
+  // reed it's perched on
+  ctx.strokeStyle = "#4a6a3a";
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(s * 0.5, s); ctx.quadraticCurveTo(s * 0.46, s * 0.7, s * 0.52, s * 0.52);
+  ctx.stroke();
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = "#1a1a1a";
+  // wings — four translucent blades
+  ctx.fillStyle = "rgba(190,215,225,0.55)";
+  const wing = (dx: number, dy: number, rot: number) => {
+    ctx.save();
+    ctx.translate(cx + dx, cy + dy); ctx.rotate(rot);
+    ctx.beginPath();
+    ctx.ellipse(s * 0.13, 0, s * 0.14, s * 0.035, 0, 0, Math.PI * 2);
+    ctx.fill(); ctx.stroke();
+    ctx.restore();
+  };
+  wing(0, -s * 0.02, -0.35);
+  wing(0, -s * 0.02, Math.PI + 0.35);
+  wing(0, s * 0.02, 0.3);
+  wing(0, s * 0.02, Math.PI - 0.3);
+  // body
+  ctx.fillStyle = "#3f8a9a";
+  ctx.beginPath();
+  ctx.ellipse(cx, cy, s * 0.028, s * 0.02, 0, 0, Math.PI * 2);
+  ctx.fill(); ctx.stroke();
+  // long abdomen
+  ctx.beginPath();
+  ctx.moveTo(cx, cy);
+  ctx.lineTo(cx - s * 0.22, cy + s * 0.06);
+  ctx.lineWidth = 5;
+  ctx.strokeStyle = "#3f8a9a";
+  ctx.stroke();
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = "#1a1a1a";
+  // head + eyes
+  ctx.fillStyle = "#2b6b78";
+  ctx.beginPath(); ctx.arc(cx + s * 0.04, cy - s * 0.005, s * 0.028, 0, Math.PI * 2);
+  ctx.fill(); ctx.stroke();
+}
+
+function drawFrogChorus(d: DrawCtx) {
+  const { ctx, s } = d;
+  // lily pads on water
+  ctx.fillStyle = "#8fb0c4";
+  ctx.fillRect(0, s * 0.55, s, s * 0.45);
+  const pad = (cx: number, cy: number, r: number) => {
+    ctx.fillStyle = "#5f8a48";
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, r, r * 0.55, 0, 0.35, Math.PI * 2 + 0.05);
+    ctx.closePath();
+    ctx.fill(); ctx.stroke();
+  };
+  pad(s * 0.3, s * 0.78, s * 0.17);
+  pad(s * 0.68, s * 0.85, s * 0.14);
+  // frogs
+  const frog = (cx: number, cy: number, sc: number) => {
+    ctx.save();
+    ctx.translate(cx, cy); ctx.scale(sc, sc);
+    ctx.fillStyle = "#6d9a4a";
+    // body
+    ctx.beginPath();
+    ctx.ellipse(0, 0, s * 0.075, s * 0.055, 0, 0, Math.PI * 2);
+    ctx.fill(); ctx.stroke();
+    // eyes on top
+    ctx.beginPath(); ctx.arc(-s * 0.03, -s * 0.05, s * 0.022, 0, Math.PI * 2);
+    ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.arc(s * 0.03, -s * 0.05, s * 0.022, 0, Math.PI * 2);
+    ctx.fill(); ctx.stroke();
+    ctx.fillStyle = "#1a1a1a";
+    ctx.beginPath(); ctx.arc(-s * 0.03, -s * 0.05, 2, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(s * 0.03, -s * 0.05, 2, 0, Math.PI * 2); ctx.fill();
+    // back legs
+    ctx.strokeStyle = "#1a1a1a";
+    ctx.beginPath();
+    ctx.moveTo(-s * 0.06, s * 0.03); ctx.lineTo(-s * 0.1, s * 0.06);
+    ctx.moveTo(s * 0.06, s * 0.03); ctx.lineTo(s * 0.1, s * 0.06);
+    ctx.stroke();
+    ctx.restore();
+  };
+  frog(s * 0.3, s * 0.72, 1);
+  frog(s * 0.68, s * 0.79, 0.8);
+  // croak marks
+  ctx.strokeStyle = "rgba(26,26,26,0.5)";
+  ctx.beginPath();
+  ctx.arc(s * 0.42, s * 0.62, s * 0.05, -0.9, 0.4); ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(s * 0.42, s * 0.62, s * 0.08, -0.8, 0.3); ctx.stroke();
+}
+
 const drawers: Record<string, (d: DrawCtx) => void> = {
+  "Heron": drawHeron,
+  "Koi Shadow": drawKoiShadow,
+  "Dragonfly": drawDragonfly,
+  "Frog Chorus": drawFrogChorus,
   "Park Cat": drawParkCat,
   "Bench Sitter": drawBenchSitter,
   "Pigeon Council": drawPigeonCouncil,

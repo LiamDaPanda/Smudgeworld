@@ -43,14 +43,19 @@ const { scene, worldRoot } = world;
 const player = createPlayer(worldWidth / 2, worldDepth / 2);
 worldRoot.add(player.root);
 
-const smudges = createSmudges(worldWidth, worldDepth);
-attachSmudges(smudges, worldRoot);
-
 // Water feature: pond near the north edge with a waterfall behind it and a
-// few fish drifting on the surface.
+// few fish drifting on the surface. Its position is settled first because
+// the Waterside subjects spawn in a ring around its bank.
 const pondCx = worldWidth * 0.72;
 const pondCz = worldDepth * 0.28;
-const pond = createPond(pondCx, pondCz, 3.8);
+const pondRadius = 3.8;
+
+const smudges = createSmudges(worldWidth, worldDepth, {
+  x: pondCx, z: pondCz, radius: pondRadius,
+});
+attachSmudges(smudges, worldRoot);
+
+const pond = createPond(pondCx, pondCz, pondRadius);
 worldRoot.add(pond.group);
 const waterfall = createWaterfall(pondCx, pondCz - 3.5, 3.2, 3.6);
 worldRoot.add(waterfall.group);
@@ -566,6 +571,11 @@ document.getElementById("prox-btn")?.addEventListener("click", launchPhotoIfPoss
   },
   startPhoto: (i = 0) => startPhotoMode(state.smudges[i], () => {}),
   setTime: (t: number) => setTimeOfDay(t),
+  smudgeNames: () => state.smudges.map((s) => s.name),
+  boom: () => Math.hypot(
+    camera.position.x - state.player.worldX,
+    camera.position.z - state.player.worldZ
+  ),
 };
 window.addEventListener("keydown", (e) => {
   if ((e.key === "e" || e.key === "E") && gameActive && !isPhotoModeActive() && nearestSmudge) {
