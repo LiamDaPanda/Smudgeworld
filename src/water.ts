@@ -15,6 +15,7 @@ import {
   MeshBasicMaterial,
   PlaneGeometry,
   RingGeometry,
+  type Material,
 } from "three";
 
 const INK = new Color("#2b2b2b");
@@ -92,6 +93,8 @@ export interface Pond {
   center: [number, number];
   radius: number;
   ripples: Ripple[];
+  /** Surface disc, whose texture offset we scroll for a slow shimmer. */
+  surface?: Mesh;
 }
 
 export function createPond(cx: number, cz: number, radius: number): Pond {
@@ -133,6 +136,64 @@ export function createPond(cx: number, cz: number, radius: number): Pond {
   hatchGeo.setAttribute("position", new Float32BufferAttribute(hatchPos, 3));
   group.add(new LineSegments(hatchGeo, new LineBasicMaterial({ color: new Color("#2b2b2b"), transparent: true, opacity: 0.45 })));
 
+  // Bank stones ringing the pond, so the water sits in something rather than
+  // being a disc laid on grass.
+  const stoneRand = seededRand(2201);
+  for (let i = 0; i < 22; i++) {
+    const a = (i / 22) * Math.PI * 2 + stoneRand() * 0.2;
+    const rr = radius * (1.02 + stoneRand() * 0.09);
+    const sr = 0.16 + stoneRand() * 0.2;
+    const shade = ["#9a948a", "#8a857b", "#a8a298"][Math.floor(stoneRand() * 3)];
+    const geo = new IcosahedronGeometry(sr, 0);
+    const stone = new Mesh(geo, new MeshBasicMaterial({ color: new Color(shade) }));
+    stone.position.set(cx + Math.cos(a) * rr, sr * 0.42, cz + Math.sin(a) * rr);
+    stone.scale.set(1.2, 0.62, 1);
+    stone.rotation.y = stoneRand() * Math.PI;
+    group.add(stone);
+    const edges = new LineSegments(
+      new EdgesGeometry(geo, 28),
+      new LineBasicMaterial({ color: INK, transparent: true, opacity: 0.7 })
+    );
+    edges.position.copy(stone.position);
+    edges.scale.copy(stone.scale);
+    edges.rotation.copy(stone.rotation);
+    group.add(edges);
+  }
+
+  // Lily pads: notched discs floating on the surface, a few with a bloom.
+  for (let i = 0; i < 9; i++) {
+    const a = stoneRand() * Math.PI * 2;
+    const rr = Math.sqrt(stoneRand()) * radius * 0.72;
+    const px = cx + Math.cos(a) * rr;
+    const pz = cz + Math.sin(a) * rr;
+    const pr = 0.26 + stoneRand() * 0.18;
+    // CircleGeometry with a wedge removed reads as the classic notched pad
+    const padGeo = new CircleGeometry(pr, 18, 0.4, Math.PI * 2 - 0.8);
+    const pad = new Mesh(padGeo, new MeshBasicMaterial({
+      color: new Color(stoneRand() < 0.5 ? "#5f8a48" : "#6f9a54"), side: DoubleSide,
+    }));
+    pad.rotation.x = -Math.PI / 2;
+    pad.rotation.z = stoneRand() * Math.PI * 2;
+    pad.position.set(px, 0.022, pz);
+    group.add(pad);
+    const padEdge = new LineSegments(
+      new EdgesGeometry(padGeo, 1),
+      new LineBasicMaterial({ color: INK, transparent: true, opacity: 0.55 })
+    );
+    padEdge.rotation.copy(pad.rotation);
+    padEdge.position.copy(pad.position);
+    group.add(padEdge);
+
+    if (stoneRand() < 0.35) {
+      const bloom = new Mesh(
+        new IcosahedronGeometry(0.075, 0),
+        new MeshBasicMaterial({ color: new Color("#e8a9c4") })
+      );
+      bloom.position.set(px + pr * 0.2, 0.06, pz + pr * 0.2);
+      group.add(bloom);
+    }
+  }
+
   // Reeds around one side
   const reedPos: number[] = [];
   const rand = seededRand(1400);
@@ -148,10 +209,18 @@ export function createPond(cx: number, cz: number, radius: number): Pond {
   reedGeo.setAttribute("position", new Float32BufferAttribute(reedPos, 3));
   group.add(new LineSegments(reedGeo, new LineBasicMaterial({ color: new Color("#4a6a3a"), transparent: true, opacity: 0.85 })));
 
-  return { group, center: [cx, cz], radius, ripples: [] };
+  return { group, center: [cx, cz], radius, ripples: [], surface: disc };
 }
 
 export function updatePond(pond: Pond, time: number) {
+  // Slow shimmer: drift the surface texture so the water is never quite still.
+  if (pond.surface) {
+    const mat = pond.surface.material as Material & { map?: { offset: { set: (x: number, y: number) => void } } };
+    if (mat.map) {
+      mat.map.offset.set(Math.sin(time * 0.06) * 0.03, time * 0.012 % 1);
+    }
+  }
+
   // Occasionally spawn a ripple at a random point on the pond
   const rand = Math.random;
   if (rand() < 0.03) {

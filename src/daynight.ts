@@ -1,5 +1,14 @@
-import { Color, Mesh, MeshBasicMaterial, PointsMaterial } from "three";
+import { Color, MeshBasicMaterial, PointsMaterial } from "three";
 import { getLampGlows, paintSky, type WorldHandles } from "./world.ts";
+import type { Celestial } from "./celestial.ts";
+
+// The sun and moon bodies, handed in once at boot so the cycle can fade them.
+let sunBody: Celestial | null = null;
+let moonBody: Celestial | null = null;
+export function registerCelestials(sun: Celestial, moon: Celestial) {
+  sunBody = sun;
+  moonBody = moon;
+}
 
 // A full day takes DAY_LENGTH seconds of real time. Long enough that a session
 // sees the light change, short enough that a player chasing an After Dark
@@ -169,24 +178,29 @@ export function updateDayNight(dt: number, w: WorldHandles, worldWidth: number, 
   w.ambient.intensity = p.ambientIntensity;
   w.fog.color.set(p.fog);
 
-  // Sun sweeps a low arc across the sky; below the horizon it's the moon's turn.
-  const ang = (timeOfDay - 0.25) * Math.PI * 2;
-  const arcR = Math.max(worldWidth, worldDepth) * 0.55;
-  const sunY = Math.sin(ang) * arcR * 0.5;
-  w.sun.position.set(Math.cos(ang) * 1.6, Math.max(0.25, sunY / arcR * 2 + 0.4), -0.6);
-  w.sunDisc.position.set(
-    worldWidth / 2 + Math.cos(ang) * arcR,
-    6 + sunY,
-    -35
-  );
-  // Recolor the disc: warm sun by day, pale moon by night
   const night = nightAmount();
-  const discMesh = w.sunDisc.children.find((c) => (c as Mesh).isMesh) as Mesh | undefined;
-  if (discMesh) {
-    const mat = discMesh.material as MeshBasicMaterial;
-    cA.set("#f5e3b3"); cB.set("#e8edf5");
-    mat.color.copy(cA).lerp(cB, night);
-  }
+
+  // Sun and moon ride the same arc half a day apart, so one is always setting
+  // as the other rises. Each fades out as it dips toward the horizon rather
+  // than sinking through the ground.
+  const arcR = Math.max(worldWidth, worldDepth) * 0.62;
+  const place = (mount: { position: { set: (x: number, y: number, z: number) => void } }, phase: number) => {
+    const a = (phase - 0.25) * Math.PI * 2;
+    const y = Math.sin(a) * arcR * 0.5;
+    mount.position.set(worldWidth / 2 + Math.cos(a) * arcR, 5 + y, -42);
+    // Fade out only once the body is well down behind the range, so the sun
+    // still hangs low and warm through golden hour instead of blinking off
+    // while it's plainly still in the sky.
+    return Math.max(0, Math.min(1, (y + arcR * 0.18) / (arcR * 0.15)));
+  };
+  const sunVis = place(w.sunDisc, timeOfDay);
+  const moonVis = place(w.moonDisc, (timeOfDay + 0.5) % 1);
+  sunBody?.fade(sunVis);
+  moonBody?.fade(moonVis);
+
+  // Key light follows whichever body is up
+  const lightAng = (timeOfDay - 0.25) * Math.PI * 2;
+  w.sun.position.set(Math.cos(lightAng) * 1.6, Math.max(0.25, Math.sin(lightAng) + 0.5), -0.6);
 
   // Stars fade in with night
   (w.stars.material as PointsMaterial).opacity = night * 0.9;
