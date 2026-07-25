@@ -1,5 +1,6 @@
 import { playShutter, playUiTick } from "./audio.ts";
 import { nightAmount, phaseName } from "./daynight.ts";
+import { focusCycleSeconds, focusTolerance, gearBonuses } from "./gear.ts";
 import { subjectIllustration } from "./subjects.ts";
 import type { Smudge, Snapshot } from "./types.ts";
 
@@ -130,8 +131,9 @@ export function startPhotoMode(smudge: Smudge, onComplete: OnComplete) {
 function animate() {
   if (!session?.running) return;
   const t = (performance.now() - session.startAt) / 1000;
-  // Focus ring oscillates: expands out, contracts to 0, expands out, ...
-  const cycle = 1.6; // seconds
+  // Focus ring oscillates: expands out, contracts, expands out, ...
+  // Steady Grip lengthens the cycle, giving you more time to read it.
+  const cycle = focusCycleSeconds();
   const phase = (t % cycle) / cycle; // 0..1
   session.ringPhase = phase;
   // Convert to scale: 1.6 → 0.5 → 1.6 (triangle)
@@ -139,7 +141,10 @@ function animate() {
   const scale = 1.6 - p * 1.1;
   const ring = document.getElementById("pv-focus-ring");
   if (ring) ring.style.transform = `translate(-50%, -50%) scale(${scale})`;
-  session.frameFocus = 1 - Math.abs(scale - 0.5) / 1.1; // 1 at scale 0.5, 0 at 1.6
+  // 1 at the tightest ring, 0 at the widest. Fast Shutter widens the band
+  // that still counts as sharp.
+  const raw = 1 - Math.abs(scale - 0.5) / 1.1;
+  session.frameFocus = Math.min(1, raw * focusTolerance());
   session.raf = requestAnimationFrame(animate);
 }
 
@@ -164,10 +169,11 @@ function fireShutter() {
   // Condition bonuses, per the design doc: shooting a subject in its element
   // develops a sharper picture. Night subjects caught after dark, and any
   // subject caught in the golden light of dawn or dusk, both grade up.
-  const bonuses: { label: string; amount: number }[] = [];
   const night = nightAmount();
+  // Gear bonuses stack with the situational ones.
+  const bonuses: { label: string; amount: number }[] = gearBonuses(night);
   if (session.smudge.set === "After Dark" && night > 0.5) {
-    bonuses.push({ label: "Night film", amount: 0.1 });
+    bonuses.push({ label: "In its element", amount: 0.1 });
   }
   const phase = phaseName();
   if (phase === "Dawn" || phase === "Dusk") {

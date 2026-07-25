@@ -15,6 +15,10 @@ import {
 } from "./library.ts";
 import { createFish, createPond, createWaterfall, updateFish, updatePond, updateWaterfall } from "./water.ts";
 import { isPhotoModeActive, startPhotoMode } from "./photo.ts";
+import {
+  closeShop, grantGear, initShop, openShop, ownedGear,
+  renderShop, restoreGear, spotRadius, type GearItem,
+} from "./gear.ts";
 import type { GameState, Smudge } from "./types.ts";
 
 const canvas = document.getElementById("game") as HTMLCanvasElement;
@@ -170,6 +174,30 @@ document.getElementById("inv-toggle")?.addEventListener("click", () => {
   document.getElementById("inv-toggle")?.classList.remove("has-new");
   playUiTick();
   openInventory();
+});
+
+// Gear shop. Buying deducts coins, grants the item, and re-renders in place
+// so the player sees the new balance and their remaining options at once.
+initShop(
+  () => state.coins,
+  (item: GearItem) => {
+    if (state.coins < item.cost) return;
+    state.coins -= item.cost;
+    grantGear(item.id);
+    updateHud(state);
+    renderShop();
+    playSuccess();
+    showToast(`Bought ${item.name} · ${item.effect}`, 3200);
+    saveGame();
+  }
+);
+document.getElementById("shop-toggle")?.addEventListener("click", () => {
+  playUiTick();
+  openShop();
+});
+document.getElementById("shop-close")?.addEventListener("click", closeShop);
+document.getElementById("shop-modal")?.addEventListener("click", (e) => {
+  if (e.target === e.currentTarget) closeShop();
 });
 
 // Mute toggle — reflects state in the chip label.
@@ -388,6 +416,7 @@ function saveGame() {
       coins: state.coins,
       snapshotCount: state.snapshotCount,
       xp,
+      gear: ownedGear(),
       library: lib,
     }));
   } catch { /* storage full or unavailable — play on without saving */ }
@@ -401,6 +430,7 @@ function loadGame() {
     state.coins = data.coins ?? 0;
     state.snapshotCount = data.snapshotCount ?? 0;
     xp = data.xp ?? 0;
+    restoreGear(data.gear);
     restoreLibrary(data.library ?? null);
     // Reflect captured subjects on the world's smudges
     const captured = getCapturedSubjects();
@@ -495,13 +525,14 @@ function updateClockHud() {
 }
 
 // Proximity to smudges — updated each frame so the prompt tracks the nearest.
-const PROX_RADIUS = 3.5;
+// The radius comes from gear, so a Wide Lens really does let you spot things
+// from further away.
 let nearestSmudge: Smudge | null = null;
 
 function updateProximity() {
   const p = state.player;
   let best: Smudge | null = null;
-  let bestDist = PROX_RADIUS;
+  let bestDist = spotRadius();
   for (const s of state.smudges) {
     if (!s.visible) continue;
     const dx = s.worldPos.x - p.worldX;
@@ -572,6 +603,7 @@ document.getElementById("prox-btn")?.addEventListener("click", launchPhotoIfPoss
   startPhoto: (i = 0) => startPhotoMode(state.smudges[i], () => {}),
   setTime: (t: number) => setTimeOfDay(t),
   smudgeNames: () => state.smudges.map((s) => s.name),
+  addCoins: (n: number) => { state.coins += n; updateHud(state); renderShop(); },
   boom: () => Math.hypot(
     camera.position.x - state.player.worldX,
     camera.position.z - state.player.worldZ
