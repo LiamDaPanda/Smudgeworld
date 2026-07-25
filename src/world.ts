@@ -21,6 +21,8 @@ import {
   MeshToonMaterial,
   NearestFilter,
   PlaneGeometry,
+  Points,
+  PointsMaterial,
   RGBAFormat,
   Scene,
   Vector3,
@@ -461,6 +463,10 @@ function makeFlower(rand: () => number): Group {
   return g;
 }
 
+// Lamp glows are collected so the day/night cycle can fade them up at dusk.
+const lampGlows: { glow: Mesh; bulb: Mesh }[] = [];
+export function getLampGlows() { return lampGlows; }
+
 // Lamp post: slim cylinder pole + boxy lamp housing + a soft glow disc facing
 // down. Rare and taller than everything else so they read as landmarks.
 function makeLampPost(rand: () => number): Group {
@@ -497,7 +503,12 @@ function makeLampPost(rand: () => number): Group {
     new MeshBasicMaterial({ map: glowTex, color: new Color("#f8dfa2"), transparent: true, opacity: 0.55, depthWrite: false })
   );
   glow.position.set(0.35, poleH - 0.2, 0.01);
+  glow.material.opacity = 0; // dark by day; the day/night cycle fades it up
   g.add(glow);
+
+  // Register so the day/night cycle can light this lamp after dusk.
+  const bulbMesh = lamp.children.find((c) => (c as Mesh).isMesh) as Mesh | undefined;
+  if (bulbMesh) lampGlows.push({ glow, bulb: bulbMesh });
 
   return g;
 }
@@ -1008,29 +1019,76 @@ function makePath(cx1: number, cz1: number, cx2: number, cz2: number, viaX: numb
   return g;
 }
 
-// Soft vertical sky gradient — warm paper at the horizon rising into a pale
-// wash of blue-grey. Used as the scene background texture.
-function makeSkyTexture(): CanvasTexture {
-  const c = document.createElement("canvas");
-  c.width = 4;
-  c.height = 512;
-  const ctx = c.getContext("2d")!;
+// Soft vertical sky gradient. The canvas is kept around so the day/night
+// cycle can repaint it each time the palette shifts.
+const skyCanvas = document.createElement("canvas");
+skyCanvas.width = 4;
+skyCanvas.height = 512;
+let skyTexture: CanvasTexture | null = null;
+
+export function paintSky(top: string, mid: string, horizon: string): CanvasTexture {
+  const ctx = skyCanvas.getContext("2d")!;
   const grad = ctx.createLinearGradient(0, 0, 0, 512);
-  grad.addColorStop(0, "#dfe4e8");
-  grad.addColorStop(0.45, "#eeeade");
-  grad.addColorStop(0.75, "#f4efe6");
-  grad.addColorStop(1, "#f6f0e2");
+  grad.addColorStop(0, top);
+  grad.addColorStop(0.5, mid);
+  grad.addColorStop(1, horizon);
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, 4, 512);
-  const tex = new CanvasTexture(c);
-  tex.needsUpdate = true;
-  return tex;
+  if (!skyTexture) {
+    skyTexture = new CanvasTexture(skyCanvas);
+  }
+  skyTexture.needsUpdate = true;
+  return skyTexture;
 }
 
-export function buildWorld(worldWidth: number, worldDepth: number): { scene: Scene; worldRoot: Group } {
+function makeSkyTexture(): CanvasTexture {
+  return paintSky("#dfe4e8", "#eeeade", "#f6f0e2");
+}
+
+// Star field — points scattered on a large dome, invisible by day.
+function makeStars(worldWidth: number, worldDepth: number): Points {
+  const count = 260;
+  const positions = new Float32Array(count * 3);
+  const rand = seededRand(9182);
+  const R = Math.max(worldWidth, worldDepth) * 1.1;
+  for (let i = 0; i < count; i++) {
+    // Upper hemisphere only
+    const theta = rand() * Math.PI * 2;
+    const phi = rand() * Math.PI * 0.42;
+    positions[i * 3] = worldWidth / 2 + Math.sin(phi) * Math.cos(theta) * R;
+    positions[i * 3 + 1] = Math.cos(phi) * R * 0.75 + 4;
+    positions[i * 3 + 2] = worldDepth / 2 + Math.sin(phi) * Math.sin(theta) * R;
+  }
+  const geo = new BufferGeometry();
+  geo.setAttribute("position", new Float32BufferAttribute(positions, 3));
+  const mat = new PointsMaterial({
+    color: new Color("#f6f2e4"),
+    size: 0.5,
+    sizeAttenuation: true,
+    transparent: true,
+    opacity: 0,
+    depthWrite: false,
+    fog: false,
+  });
+  return new Points(geo, mat);
+}
+
+export interface WorldHandles {
+  scene: Scene;
+  worldRoot: Group;
+  sun: DirectionalLight;
+  fill: DirectionalLight;
+  ambient: AmbientLight;
+  fog: Fog;
+  stars: Points;
+  sunDisc: Group;
+}
+
+export function buildWorld(worldWidth: number, worldDepth: number): WorldHandles {
   const scene = new Scene();
   scene.background = makeSkyTexture();
-  scene.fog = new Fog(PAPER.getHex(), Math.max(worldWidth, worldDepth) * 0.6, Math.max(worldWidth, worldDepth) * 1.4);
+  const fog = new Fog(PAPER.getHex(), Math.max(worldWidth, worldDepth) * 0.6, Math.max(worldWidth, worldDepth) * 1.4);
+  scene.fog = fog;
 
   // Warm sun from above-right, cool fill from above-left. Toon materials use
   // this to pick a shading step, giving objects volume without breaking flat
@@ -1041,7 +1099,11 @@ export function buildWorld(worldWidth: number, worldDepth: number): { scene: Sce
   const fill = new DirectionalLight(0xc8d4e2, 0.4);
   fill.position.set(-1.2, 1.4, 0.8);
   scene.add(fill);
-  scene.add(new AmbientLight(0xffffff, 0.55));
+  const ambient = new AmbientLight(0xffffff, 0.55);
+  scene.add(ambient);
+
+  const stars = makeStars(worldWidth, worldDepth);
+  scene.add(stars);
 
   const worldRoot = new Group();
   scene.add(worldRoot);
@@ -1296,5 +1358,5 @@ export function buildWorld(worldWidth: number, worldDepth: number): { scene: Sce
   void new Vector3();
   void makeHillRing;
 
-  return { scene, worldRoot };
+  return { scene, worldRoot, sun, fill, ambient, fog, stars, sunDisc };
 }

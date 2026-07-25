@@ -1,3 +1,4 @@
+import { playShutter, playUiTick } from "./audio.ts";
 import { subjectIllustration } from "./subjects.ts";
 import type { Smudge, Snapshot } from "./types.ts";
 
@@ -96,6 +97,7 @@ export function startPhotoMode(smudge: Smudge, onComplete: OnComplete) {
   };
 
   const overlay = document.getElementById("photo-overlay")!;
+  playUiTick();
   overlay.classList.add("show");
   overlay.classList.remove("firing");
   document.getElementById("pv-result")!.classList.remove("show");
@@ -132,6 +134,7 @@ function fireShutter() {
   if (!session?.running) return;
   session.running = false;
   cancelAnimationFrame(session.raf);
+  playShutter();
   const flash = document.getElementById("pv-flash");
   flash?.classList.add("fire");
   setTimeout(() => flash?.classList.remove("fire"), 380);
