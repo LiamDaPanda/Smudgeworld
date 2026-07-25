@@ -891,13 +891,17 @@ function makePath(cx1: number, cz1: number, cx2: number, cz2: number, viaX: numb
       const pyR = sampleGroundHeight(prev[0] - nx * w, prev[2] - nz * w) + yLift;
       const yL = sampleGroundHeight(x + nx * w, z + nz * w) + yLift;
       const yR = sampleGroundHeight(x - nx * w, z - nz * w) + yLift;
+      // Two triangles forming the ribbon quad from prev→curr:
+      //   PL --- CL       (P = prev, C = curr, L = left, R = right)
+      //   |  \    |
+      //   PR --- CR
+      const PLx = prev[0] + nx * w, PLz = prev[2] + nz * w;
+      const PRx = prev[0] - nx * w, PRz = prev[2] - nz * w;
+      const CLx = x + nx * w,       CLz = z + nz * w;
+      const CRx = x - nx * w,       CRz = z - nz * w;
       ribbonPos.push(
-        prev[0] + nx * w, pyL, prev[2] + nz * w,
-        x + nx * w, yL, z + nz * w,
-        prev[0] - nx * w, pyR, prev[2] - nz * w,
-        x + nx * w, yL, z + nz * w,
-        x - nx * w, yR, z + nz * w,
-        prev[0] - nx * w, pyR, prev[2] - nz * w,
+        PLx, pyL, PLz,   CLx, yL, CLz,   PRx, pyR, PRz,
+        CLx, yL, CLz,    CRx, yR, CRz,   PRx, pyR, PRz,
       );
       positions.push(prev[0], prev[1] + 0.002, prev[2], x, y + 0.002, z);
     }
@@ -905,8 +909,18 @@ function makePath(cx1: number, cz1: number, cx2: number, cz2: number, viaX: numb
   }
   const ribbonGeo = new BufferGeometry();
   ribbonGeo.setAttribute("position", new Float32BufferAttribute(ribbonPos, 3));
-  const ribbonTex = makeWatercolorTexture("#c9ae7b", 600, 256, 22, 8, 0.5);
-  g.add(new Mesh(ribbonGeo, new MeshBasicMaterial({ map: ribbonTex, color: new Color("#d6b988"), transparent: true, opacity: 0.85, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 })));
+  // Solid tan color, no map — the ribbon has no UVs, so any texture would
+  // sample inconsistently per triangle and show as tan zigzag facets on the
+  // ground. A flat color reads as one continuous path.
+  g.add(new Mesh(ribbonGeo, new MeshBasicMaterial({
+    color: new Color("#d6b988"),
+    transparent: true,
+    opacity: 0.7,
+    depthWrite: false,
+    polygonOffset: true,
+    polygonOffsetFactor: -2,
+    polygonOffsetUnits: -2,
+  })));
 
   const centerGeo = new BufferGeometry();
   centerGeo.setAttribute("position", new Float32BufferAttribute(positions, 3));
