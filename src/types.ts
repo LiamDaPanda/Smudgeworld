@@ -5,6 +5,7 @@ export interface InputState {
   moveX: number; // -1 (left/west) to +1 (right/east)
   moveZ: number; // -1 (forward/into scene) to +1 (backward/toward camera)
   cameraHeld: boolean;
+  sprint: boolean;
   aimX: number;
   aimY: number;
   consumeSnap: () => boolean;

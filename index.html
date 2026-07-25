@@ -443,6 +443,37 @@
         width: 0%;
         transition: width 320ms ease;
       }
+      #xp-bar {
+        width: 120px; height: 4px;
+        border: 1px solid rgba(43,43,43,0.5);
+        background: rgba(255,255,255,0.4);
+        pointer-events: none;
+      }
+      #xp-bar .fill {
+        height: 100%; background: #7a9a4a;
+        width: 0%;
+        transition: width 400ms ease;
+      }
+      .coin-pop {
+        position: absolute;
+        right: 4px; top: -4px;
+        color: #7a5a1a; font-size: 12px; font-weight: bold;
+        animation: coin-pop 1.05s ease forwards;
+        pointer-events: none;
+      }
+      @keyframes coin-pop {
+        0% { transform: translateY(0); opacity: 0; }
+        18% { opacity: 1; }
+        100% { transform: translateY(-26px); opacity: 0; }
+      }
+      #coin { position: relative; }
+      #inv-toggle { position: relative; }
+      #inv-toggle.has-new::after {
+        content: "";
+        position: absolute; top: -4px; right: -4px;
+        width: 9px; height: 9px; border-radius: 50%;
+        background: #c85252; border: 1.5px solid #f4efe6;
+      }
 
       /* Menu overlay — shown first */
       #menu-overlay {
@@ -582,6 +613,11 @@
           <svg viewBox="0 0 12 12" aria-hidden="true"><rect x="1" y="3" width="10" height="7" fill="none" stroke="currentColor" stroke-width="1"/><circle cx="6" cy="6.5" r="2" fill="none" stroke="currentColor" stroke-width="1"/></svg>
           <span id="found-val">0</span>
         </div>
+        <div class="hud-chip" id="level-chip">
+          <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1 L7.4 4.2 L11 4.6 L8.3 6.9 L9.2 10.4 L6 8.5 L2.8 10.4 L3.7 6.9 L1 4.6 L4.6 4.2 Z" fill="none" stroke="currentColor" stroke-width="0.8"/></svg>
+          <span>Lv <span id="level-val">1</span></span>
+        </div>
+        <div id="xp-bar"><div class="fill" id="xp-fill"></div></div>
         <div id="progress-bar">
           <div class="label"><span id="pb-name">Park Life</span><span id="pb-count">0/5</span></div>
           <div class="track"><div class="fill" id="pb-fill"></div></div>

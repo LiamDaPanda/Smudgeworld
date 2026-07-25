@@ -850,16 +850,74 @@ function makeClouds(rand: () => number, worldWidth: number, worldDepth: number):
   return g;
 }
 
-export function updateAtmosphere(dt: number) {
-  if (!cloudsInfo) return;
-  const info = cloudsInfo;
-  const wrapMax = Math.max(info.worldWidth, info.worldDepth) * 0.9;
-  info.group.children.forEach((c, i) => {
-    c.position.x += info.cloudSpeeds[i] * dt;
-    if (c.position.x - info.worldWidth / 2 > wrapMax) {
-      c.position.x -= wrapMax * 2;
-    }
-  });
+// Butterflies — a pair of triangle wings that flap and wander a loopy path
+// around a home point. Cheap, but brings the meadow to life.
+interface Butterfly {
+  group: Group;
+  wingL: Mesh;
+  wingR: Mesh;
+  home: [number, number];
+  seed: number;
+}
+const butterflies: Butterfly[] = [];
+const BUTTERFLY_COLORS = ["#e0708a", "#dcb85a", "#a37fc9", "#f4efe6"];
+
+function makeButterfly(homeX: number, homeZ: number, seed: number): Butterfly {
+  const group = new Group();
+  const color = new Color(BUTTERFLY_COLORS[Math.floor(seed * 7) % BUTTERFLY_COLORS.length]);
+  const wingGeo = new BufferGeometry();
+  wingGeo.setAttribute("position", new Float32BufferAttribute([
+    0, 0, 0,
+    0.09, 0.04, 0,
+    0.07, -0.05, 0,
+  ], 3));
+  wingGeo.setIndex([0, 1, 2]);
+  wingGeo.computeVertexNormals();
+  const mat = new MeshBasicMaterial({ color, side: DoubleSide });
+  const wingL = new Mesh(wingGeo, mat);
+  const wingR = new Mesh(wingGeo.clone(), mat);
+  wingR.scale.x = -1;
+  group.add(wingL);
+  group.add(wingR);
+  group.position.set(homeX, 0.8, homeZ);
+  return { group, wingL, wingR, home: [homeX, homeZ], seed };
+}
+
+export function spawnButterflies(worldRoot: Group, spots: [number, number][]) {
+  for (let i = 0; i < spots.length; i++) {
+    const b = makeButterfly(spots[i][0], spots[i][1], (i * 0.37 + 0.13) % 1);
+    butterflies.push(b);
+    worldRoot.add(b.group);
+  }
+}
+
+export function updateAtmosphere(dt: number, time = 0) {
+  if (cloudsInfo) {
+    const info = cloudsInfo;
+    const wrapMax = Math.max(info.worldWidth, info.worldDepth) * 0.9;
+    info.group.children.forEach((c, i) => {
+      c.position.x += info.cloudSpeeds[i] * dt;
+      if (c.position.x - info.worldWidth / 2 > wrapMax) {
+        c.position.x -= wrapMax * 2;
+      }
+    });
+  }
+  for (const b of butterflies) {
+    const t = time * (0.5 + b.seed * 0.4) + b.seed * 20;
+    // Loopy lissajous wander around home
+    const x = b.home[0] + Math.sin(t * 0.9) * 1.6 + Math.sin(t * 0.37) * 0.8;
+    const z = b.home[1] + Math.cos(t * 0.7) * 1.4 + Math.cos(t * 0.53) * 0.7;
+    const y = 0.7 + Math.sin(t * 1.3) * 0.25 + b.seed * 0.4;
+    // Face the travel direction
+    const dx = x - b.group.position.x;
+    const dz = z - b.group.position.z;
+    if (Math.hypot(dx, dz) > 0.001) b.group.rotation.y = Math.atan2(dx, dz);
+    b.group.position.set(x, y, z);
+    // Wing flap
+    const flap = Math.sin(time * 18 + b.seed * 30) * 0.9;
+    b.wingL.rotation.y = flap;
+    b.wingR.rotation.y = -flap;
+  }
 }
 
 // Winding path that follows the terrain — each vertex is lifted to the
@@ -928,9 +986,28 @@ function makePath(cx1: number, cz1: number, cx2: number, cz2: number, viaX: numb
   return g;
 }
 
+// Soft vertical sky gradient — warm paper at the horizon rising into a pale
+// wash of blue-grey. Used as the scene background texture.
+function makeSkyTexture(): CanvasTexture {
+  const c = document.createElement("canvas");
+  c.width = 4;
+  c.height = 512;
+  const ctx = c.getContext("2d")!;
+  const grad = ctx.createLinearGradient(0, 0, 0, 512);
+  grad.addColorStop(0, "#dfe4e8");
+  grad.addColorStop(0.45, "#eeeade");
+  grad.addColorStop(0.75, "#f4efe6");
+  grad.addColorStop(1, "#f6f0e2");
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 4, 512);
+  const tex = new CanvasTexture(c);
+  tex.needsUpdate = true;
+  return tex;
+}
+
 export function buildWorld(worldWidth: number, worldDepth: number): { scene: Scene; worldRoot: Group } {
   const scene = new Scene();
-  scene.background = PAPER;
+  scene.background = makeSkyTexture();
   scene.fog = new Fog(PAPER.getHex(), Math.max(worldWidth, worldDepth) * 0.6, Math.max(worldWidth, worldDepth) * 1.4);
 
   // Warm sun from above-right, cool fill from above-left. Toon materials use
@@ -1052,12 +1129,17 @@ export function buildWorld(worldWidth: number, worldDepth: number): { scene: Sce
     const rock = makeRock(rand);
     rock.position.set(x, yAt(x, z), z);
     worldRoot.add(rock);
+    const shadow = makeGroundShadow(0.35);
+    shadow.position.set(x + 0.06, yAt(x, z) + 0.004, z + 0.06);
+    worldRoot.add(shadow);
   }
 
+  const bedCenters: [number, number][] = [];
   for (let bed = 0; bed < 14; bed++) {
     const bx = 3 + rand() * (worldWidth - 6);
     const bz = 3 + rand() * (worldDepth - 6);
     if (Math.hypot(bx - cx, bz - cz) < clearRadius) continue;
+    bedCenters.push([bx, bz]);
     const count = 6 + Math.floor(rand() * 6);
     for (let i = 0; i < count; i++) {
       const fx = bx + (rand() - 0.5) * 1.4;
@@ -1067,6 +1149,8 @@ export function buildWorld(worldWidth: number, worldDepth: number): { scene: Sce
       worldRoot.add(flower);
     }
   }
+  // Butterflies flutter around half of the flower beds
+  spawnButterflies(worldRoot, bedCenters.filter((_, i) => i % 2 === 0));
 
   const lampCoords: [number, number][] = [
     [worldWidth * 0.2, worldDepth * 0.25],
@@ -1093,6 +1177,9 @@ export function buildWorld(worldWidth: number, worldDepth: number): { scene: Sce
     const bench = makeBench(rand);
     bench.position.set(bx, yAt(bx, bz), bz);
     worldRoot.add(bench);
+    const shadow = makeGroundShadow(0.85);
+    shadow.position.set(bx + 0.08, yAt(bx, bz) + 0.004, bz + 0.08);
+    worldRoot.add(shadow);
   }
 
   const sunDisc = outlinedMesh(new IcosahedronGeometry(0.6, 2), {
@@ -1101,6 +1188,22 @@ export function buildWorld(worldWidth: number, worldDepth: number): { scene: Sce
   });
   sunDisc.position.set(worldWidth / 2, 10, -35);
   worldRoot.add(sunDisc);
+
+  // Hand-drawn sun rays: short ink dashes radiating from the disc, with gaps,
+  // like a child's drawing of a sun.
+  const rayPos: number[] = [];
+  for (let i = 0; i < 12; i++) {
+    const a = (i / 12) * Math.PI * 2 + 0.15;
+    const r0 = 1.1 + (i % 2) * 0.25;
+    const r1 = r0 + 0.7 + (i % 3) * 0.2;
+    rayPos.push(
+      worldWidth / 2 + Math.cos(a) * r0, 10 + Math.sin(a) * r0, -35,
+      worldWidth / 2 + Math.cos(a) * r1, 10 + Math.sin(a) * r1, -35
+    );
+  }
+  const rayGeo = new BufferGeometry();
+  rayGeo.setAttribute("position", new Float32BufferAttribute(rayPos, 3));
+  worldRoot.add(new LineSegments(rayGeo, new LineBasicMaterial({ color: new Color("#c9a94a"), transparent: true, opacity: 0.7 })));
 
   void new Vector3();
   void makeHillRing;
