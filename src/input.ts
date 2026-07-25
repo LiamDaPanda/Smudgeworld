@@ -33,13 +33,32 @@ export function createInput(canvas: HTMLCanvasElement): InputState {
   });
   window.addEventListener("keyup", (e) => keys.delete(e.key.toLowerCase()));
 
+  let pendingCameraYaw = 0;
+  let rightDown = false;
+  let rightLastX = 0;
+
   canvas.addEventListener("mousemove", (e) => {
-    aimX = e.clientX;
-    aimY = e.clientY;
+    if (rightDown) {
+      pendingCameraYaw += (e.clientX - rightLastX) * 0.008;
+      rightLastX = e.clientX;
+    } else {
+      aimX = e.clientX;
+      aimY = e.clientY;
+    }
   });
-  canvas.addEventListener("mousedown", () => {
-    snapPending = true;
+  canvas.addEventListener("mousedown", (e) => {
+    if (e.button === 2) {
+      rightDown = true;
+      rightLastX = e.clientX;
+      e.preventDefault();
+    } else {
+      snapPending = true;
+    }
   });
+  window.addEventListener("mouseup", (e) => {
+    if (e.button === 2) rightDown = false;
+  });
+  canvas.addEventListener("contextmenu", (e) => e.preventDefault());
 
   canvas.addEventListener(
     "touchstart",
@@ -52,10 +71,19 @@ export function createInput(canvas: HTMLCanvasElement): InputState {
     },
     { passive: false }
   );
+  let touchOrbitId: number | null = null;
+  let touchOrbitLastX = 0;
   canvas.addEventListener(
     "touchmove",
     (e) => {
-      if (e.touches.length > 0) {
+      for (let i = 0; i < e.touches.length; i++) {
+        const t = e.touches[i];
+        if (touchOrbitId === t.identifier) {
+          pendingCameraYaw += (t.clientX - touchOrbitLastX) * 0.008;
+          touchOrbitLastX = t.clientX;
+        }
+      }
+      if (e.touches.length > 0 && touchOrbitId === null) {
         aimX = e.touches[0].clientX;
         aimY = e.touches[0].clientY;
       }
@@ -63,6 +91,25 @@ export function createInput(canvas: HTMLCanvasElement): InputState {
     },
     { passive: false }
   );
+  // A touch on the right half of the canvas becomes a camera-orbit drag.
+  canvas.addEventListener("touchstart", (e) => {
+    if (touchOrbitId !== null) return;
+    for (let i = 0; i < e.touches.length; i++) {
+      const t = e.touches[i];
+      if (t.clientX > window.innerWidth * 0.55) {
+        touchOrbitId = t.identifier;
+        touchOrbitLastX = t.clientX;
+        break;
+      }
+    }
+  }, { passive: false });
+  canvas.addEventListener("touchend", (e) => {
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      if (e.changedTouches[i].identifier === touchOrbitId) {
+        touchOrbitId = null;
+      }
+    }
+  });
 
   document.addEventListener("gesturestart", (e) => e.preventDefault(), { passive: false });
 
@@ -171,6 +218,11 @@ export function createInput(canvas: HTMLCanvasElement): InputState {
     consumeSnap() {
       if (snapPending) { snapPending = false; return true; }
       return false;
+    },
+    consumeCameraYaw() {
+      const y = pendingCameraYaw;
+      pendingCameraYaw = 0;
+      return y;
     },
   };
 }

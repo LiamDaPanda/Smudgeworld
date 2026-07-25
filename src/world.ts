@@ -820,9 +820,19 @@ function makeHillSilhouetteAround(rand: () => number, worldWidth: number, worldD
   return g;
 }
 
+// Clouds now drift slowly on the X axis; when they leave the visible ring
+// they wrap around to the other side.
+interface CloudsInfo {
+  group: Group;
+  worldWidth: number;
+  worldDepth: number;
+  cloudSpeeds: number[];
+}
+let cloudsInfo: CloudsInfo | null = null;
 function makeClouds(rand: () => number, worldWidth: number, worldDepth: number): Group {
   const g = new Group();
   const cloudTex = makeWatercolorTexture("#c8c9c4", 700, 256, 20, 6, 0, true);
+  const speeds: number[] = [];
   for (let i = 0; i < 14; i++) {
     const w = 6 + rand() * 5;
     const h = 2 + rand() * 1;
@@ -830,13 +840,26 @@ function makeClouds(rand: () => number, worldWidth: number, worldDepth: number):
       new PlaneGeometry(w, h),
       new MeshBasicMaterial({ map: cloudTex, color: new Color("#e0dcc9"), transparent: true, opacity: 0.6, depthWrite: false })
     );
-    // Place clouds around and above the play area
     const angle = rand() * Math.PI * 2;
     const radius = Math.max(worldWidth, worldDepth) * 0.6;
     mesh.position.set(worldWidth / 2 + Math.cos(angle) * radius, 8 + rand() * 3, worldDepth / 2 + Math.sin(angle) * radius);
     g.add(mesh);
+    speeds.push(0.15 + rand() * 0.25);
   }
+  cloudsInfo = { group: g, worldWidth, worldDepth, cloudSpeeds: speeds };
   return g;
+}
+
+export function updateAtmosphere(dt: number) {
+  if (!cloudsInfo) return;
+  const info = cloudsInfo;
+  const wrapMax = Math.max(info.worldWidth, info.worldDepth) * 0.9;
+  info.group.children.forEach((c, i) => {
+    c.position.x += info.cloudSpeeds[i] * dt;
+    if (c.position.x - info.worldWidth / 2 > wrapMax) {
+      c.position.x -= wrapMax * 2;
+    }
+  });
 }
 
 // Winding path that follows the terrain — each vertex is lifted to the
