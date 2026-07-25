@@ -182,9 +182,45 @@ document.getElementById("inv-close")?.addEventListener("click", closeInventory);
 document.getElementById("inventory-modal")?.addEventListener("click", (e) => {
   if (e.target === e.currentTarget) closeInventory();
 });
+// ---------------- Pause ----------------
+let paused = false;
+const pauseOverlay = document.getElementById("pause-overlay");
+
+function setPaused(next: boolean) {
+  paused = next;
+  pauseOverlay?.classList.toggle("show", paused);
+  if (paused) {
+    const clock = document.getElementById("pause-clock");
+    if (clock) clock.textContent = `${clockString()} · ${phaseName()}`;
+    paintPauseSound();
+  }
+  playUiTick();
+}
+
+function paintPauseSound() {
+  const b = document.getElementById("pause-sound");
+  if (b) b.textContent = isMuted() ? "Sound off" : "Sound on";
+}
+
+document.getElementById("pause-resume")?.addEventListener("click", () => setPaused(false));
+document.getElementById("pause-sound")?.addEventListener("click", () => {
+  toggleMute();
+  paintPauseSound();
+  paintMuteBtn();
+});
+pauseOverlay?.addEventListener("click", (e) => {
+  if (e.target === pauseOverlay) setPaused(false);
+});
+
 window.addEventListener("keydown", (e) => {
   if (e.key === "i" || e.key === "I") openInventory();
-  if (e.key === "Escape") closeInventory();
+  if (e.key === "Escape") {
+    // Escape backs out of whatever is open, innermost first.
+    const invOpen = document.getElementById("inventory-modal")?.classList.contains("open");
+    if (invOpen) closeInventory();
+    else if (isPhotoModeActive()) { /* photo mode handles its own Escape */ }
+    else if (gameActive) setPaused(!paused);
+  }
 });
 
 // Menu → cutscene → game. The game loop keeps running but input is gated
@@ -394,6 +430,53 @@ function markCollectionNew() {
   document.getElementById("inv-toggle")?.classList.add("has-new");
 }
 
+// ---------------- Onboarding ----------------
+// One-time contextual tips. Each fires once ever, then is remembered, so a
+// returning player is never nagged.
+const TIPS_KEY = "smudgeworld-tips-v1";
+let seenTips = new Set<string>();
+try {
+  seenTips = new Set(JSON.parse(localStorage.getItem(TIPS_KEY) ?? "[]"));
+} catch { /* corrupt or blocked — treat as first run */ }
+
+let tipTimer = 0;
+function showTip(id: string, text: string, ms = 5200) {
+  if (seenTips.has(id)) return;
+  seenTips.add(id);
+  try {
+    localStorage.setItem(TIPS_KEY, JSON.stringify(Array.from(seenTips)));
+  } catch { /* ignore */ }
+  const el = document.getElementById("tip-toast");
+  if (!el) return;
+  el.textContent = text;
+  el.classList.add("show");
+  clearTimeout(tipTimer);
+  tipTimer = window.setTimeout(() => el.classList.remove("show"), ms);
+}
+
+let hasMovedOnce = false;
+let tipElapsed = 0;
+function updateOnboarding(dt: number) {
+  if (!gameActive || isPhotoModeActive()) return;
+  tipElapsed += dt;
+  const moving = Math.hypot(state.input.moveX, state.input.moveZ) > 0.05;
+  if (moving) hasMovedOnce = true;
+
+  if (!hasMovedOnce && tipElapsed > 2.5) {
+    showTip("move", document.body.classList.contains("touch")
+      ? "Drag the joystick to explore."
+      : "Use W A S D to explore.");
+  }
+  if (hasMovedOnce && tipElapsed > 6) {
+    showTip("rings", "Faint rings on the ground mark a smudge. Walk to one.");
+  }
+  if (nearestSmudge) {
+    showTip("photograph", document.body.classList.contains("touch")
+      ? "Tap Photograph to raise your camera."
+      : "Press E to raise your camera.");
+  }
+}
+
 let lastClockText = "";
 function updateClockHud() {
   const el = document.getElementById("clock-val");
@@ -492,6 +575,13 @@ window.addEventListener("keydown", (e) => {
 });
 
 function update(dt: number) {
+  // Pausing halts world time entirely — the clock, wandering smudges, and
+  // drifting clouds all hold still until you resume.
+  if (paused) {
+    state.input.consumeSnap();
+    state.input.consumeCameraYaw();
+    return;
+  }
   state.time += dt;
   // While the menu/cutscene is up or photo mode is active, freeze the player.
   const input = gameActive && !isPhotoModeActive() ? state.input : idleInput;
@@ -508,6 +598,7 @@ function update(dt: number) {
   updateAtmosphere(dt, state.time);
   updateClockHud();
   updateNightGrade(night);
+  updateOnboarding(dt);
 
   // Ambience: pond bed by distance, footsteps in time with the stride.
   const pondDist = Math.hypot(
