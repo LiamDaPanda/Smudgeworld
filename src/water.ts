@@ -5,8 +5,10 @@ import {
   CircleGeometry,
   Color,
   DoubleSide,
+  EdgesGeometry,
   Float32BufferAttribute,
   Group,
+  IcosahedronGeometry,
   LineBasicMaterial,
   LineSegments,
   Mesh,
@@ -292,16 +294,68 @@ export interface Waterfall {
   width: number;
 }
 
+// A single outcrop boulder: gray icosahedron with an ink outline, matching
+// the world's rock style but big enough to build a cliff from.
+function makeBoulder(r: number, hex: string, detail = 0): Group {
+  const g = new Group();
+  const geo = new IcosahedronGeometry(r, detail);
+  const mesh = new Mesh(geo, new MeshBasicMaterial({ color: new Color(hex) }));
+  g.add(mesh);
+  const edges = new LineSegments(
+    new EdgesGeometry(geo, 30),
+    new LineBasicMaterial({ color: new Color("#2b2b2b"), transparent: true, opacity: 0.8 })
+  );
+  g.add(edges);
+  return g;
+}
+
 export function createWaterfall(cx: number, cz: number, width: number, height: number): Waterfall {
   const group = new Group();
 
-  // Stone slab (rock cliff) behind the water
+  // Rocky outcrop: a mound of boulders the waterfall actually emerges from,
+  // so it doesn't read as a lone slab standing in a field. Big stones in
+  // back rise to the lip; flanks step down; small stones scatter the front.
+  const boulderSpecs: { x: number; z: number; r: number; ys: number; hex: string }[] = [
+    { x: 0,     z: -1.4, r: 2.3, ys: 1.25, hex: "#7d766b" }, // center back — tallest
+    { x: -1.9,  z: -0.9, r: 1.7, ys: 1.1,  hex: "#8a8478" },
+    { x: 1.8,   z: -1.0, r: 1.8, ys: 1.05, hex: "#948d80" },
+    { x: -2.4,  z: 0.3,  r: 1.05, ys: 0.9, hex: "#8a8478" },
+    { x: 2.3,   z: 0.2,  r: 1.1, ys: 0.85, hex: "#7d766b" },
+    { x: -1.5,  z: 0.9,  r: 0.6, ys: 0.8,  hex: "#948d80" },
+    { x: 1.4,   z: 1.0,  r: 0.55, ys: 0.75, hex: "#8a8478" },
+  ];
+  for (const s of boulderSpecs) {
+    const b = makeBoulder(s.r, s.hex);
+    b.position.set(cx + s.x, s.r * 0.5 * s.ys, cz + s.z);
+    b.scale.set(1, s.ys, 0.85);
+    b.rotation.y = (s.x * 3.1 + s.z) % Math.PI;
+    group.add(b);
+  }
+
+  // A couple of dark shrubs clinging to the top of the outcrop
+  const shrubA = makeBoulder(0.45, "#4a6a3a", 0);
+  shrubA.position.set(cx - 1.3, height * 0.82, cz - 0.9);
+  group.add(shrubA);
+  const shrubB = makeBoulder(0.35, "#3f5c33", 0);
+  shrubB.position.set(cx + 1.5, height * 0.72, cz - 0.8);
+  group.add(shrubB);
+
+  // Stone slab (rock cliff face) directly behind the water
   const rock = new Mesh(
     new PlaneGeometry(width * 1.4, height * 1.1),
     new MeshBasicMaterial({ color: new Color("#8a8073") })
   );
   rock.position.set(cx, height / 2, cz - 0.05);
   group.add(rock);
+
+  // Source lip: a small dark notch at the top where the water emerges, so
+  // the stream visibly comes from inside the rocks rather than thin air.
+  const lip = new Mesh(
+    new PlaneGeometry(width * 0.7, 0.35),
+    new MeshBasicMaterial({ color: new Color("#5a544c") })
+  );
+  lip.position.set(cx, height + 0.1, cz + 0.02);
+  group.add(lip);
 
   // Sketchy stone outline
   const rockOutline = new BufferGeometry();
