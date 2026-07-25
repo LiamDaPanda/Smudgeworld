@@ -47,29 +47,14 @@ function makeToonRamp(): DataTexture {
 }
 const toonRamp = makeToonRamp();
 
-// Terrain height field. Layered sine/cosine noise gives smooth rolling hills
-// without needing a full perlin implementation. Amplitude is intentionally
-// small — think undulations, not mountains, so it stays walkable.
-let terrainAmp = 0.55;
-let flattenCenters: { x: number; z: number; radius: number }[] = [];
-export function setTerrainFlatten(centers: { x: number; z: number; radius: number }[]) {
-  flattenCenters = centers;
+// Ground is flat. Kept sampleGroundHeight around for compatibility with
+// callers that place objects at "ground height" — it just always returns 0.
+export function setTerrainFlatten(_centers: { x: number; z: number; radius: number }[]) {
+  void _centers;
 }
-export function sampleGroundHeight(x: number, z: number): number {
-  const base =
-    Math.sin(x * 0.24) * Math.cos(z * 0.21) * 0.55 +
-    Math.sin(x * 0.11 + 1.3) * Math.cos(z * 0.13) * 0.35 +
-    Math.sin(x * 0.6) * Math.cos(z * 0.5) * 0.12;
-  let h = base * terrainAmp;
-  // Flatten around the pond, path etc.
-  for (const c of flattenCenters) {
-    const d = Math.hypot(x - c.x, z - c.z);
-    if (d < c.radius) {
-      const t = d / c.radius; // 0 at center, 1 at edge
-      h *= t * t; // smooth blend down to 0 at center
-    }
-  }
-  return h;
+export function sampleGroundHeight(_x: number, _z: number): number {
+  void _x; void _z;
+  return 0;
 }
 
 function seededRand(seed: number) {
@@ -930,32 +915,13 @@ export function buildWorld(worldWidth: number, worldDepth: number): { scene: Sce
   const pondCenter = { x: worldWidth * 0.72, z: worldDepth * 0.28, radius: 5.5 };
   setTerrainFlatten([pondCenter]);
 
-  // Subdivided displaced ground. Vertices are shifted in Y by the terrain
-  // height function, then normals are recomputed so the toon material picks
-  // up the facets. flatShading true makes each triangle read distinctly.
-  const gw = worldWidth + 60;
-  const gd = worldDepth + 60;
-  const segsX = 90;
-  const segsZ = 60;
-  const groundGeo = new PlaneGeometry(gw, gd, segsX, segsZ);
-  groundGeo.rotateX(-Math.PI / 2);
-  const pos = groundGeo.attributes.position;
-  for (let i = 0; i < pos.count; i++) {
-    // Local coords are centered on origin; ground mesh is offset so its
-    // center matches worldWidth/2, worldDepth/2 — convert to world x/z.
-    const wx = pos.getX(i) + worldWidth / 2;
-    const wz = pos.getZ(i) + worldDepth / 2;
-    pos.setY(i, sampleGroundHeight(wx, wz));
-  }
-  groundGeo.computeVertexNormals();
-  const groundMat = new MeshToonMaterial({
-    color: new Color("#e6cfa2"),
-    map: groundTex,
-    gradientMap: toonRamp,
-  });
-  (groundMat as unknown as { flatShading: boolean }).flatShading = true;
-  groundMat.needsUpdate = true;
-  const ground = new Mesh(groundGeo, groundMat);
+  // Flat single-plane ground with the watercolor texture.
+  const groundGeo = new PlaneGeometry(worldWidth + 60, worldDepth + 60, 1, 1);
+  const ground = new Mesh(
+    groundGeo,
+    new MeshBasicMaterial({ map: groundTex, color: new Color("#f4efe6") })
+  );
+  ground.rotation.x = -Math.PI / 2;
   ground.position.set(worldWidth / 2, 0, worldDepth / 2);
   worldRoot.add(ground);
 
