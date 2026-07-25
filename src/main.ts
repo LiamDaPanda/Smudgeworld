@@ -1,6 +1,6 @@
 import { PerspectiveCamera, WebGLRenderer } from "three";
 import { createInput } from "./input.ts";
-import { buildWorld } from "./world.ts";
+import { buildWorld, sampleGroundHeight } from "./world.ts";
 import { createPlayer, updatePlayer } from "./player.ts";
 import { attachSmudges, createSmudges, updateSmudges } from "./smudges.ts";
 import { hideViewfinder } from "./camera.ts";
@@ -319,6 +319,8 @@ function update(dt: number) {
   // While the menu/cutscene is up or photo mode is active, freeze the player.
   const input = gameActive && !isPhotoModeActive() ? state.input : idleInput;
   updatePlayer(state.player, input, dt, bounds);
+  // Follow terrain height
+  state.player.root.position.y = sampleGroundHeight(state.player.worldX, state.player.worldZ);
   updateSmudges(state.smudges, state.time);
   updatePond(state.pond, state.time);
   updateFish(state.fish, state.time);
