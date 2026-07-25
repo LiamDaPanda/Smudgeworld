@@ -854,46 +854,51 @@ function makeClouds(rand: () => number, worldWidth: number, worldDepth: number):
   return g;
 }
 
-// A soft warm-tinted path that winds from one edge of the walkable area to
-// the other via the pond. Rendered as many short overlapping tan LineSegments
-// at ground level plus a wide semi-transparent ribbon.
+// Winding path that follows the terrain — each vertex is lifted to the
+// ground height at its (x, z), so the ribbon hugs the hills instead of
+// clipping through them as flat triangles.
 function makePath(cx1: number, cz1: number, cx2: number, cz2: number, viaX: number, viaZ: number): Group {
   const g = new Group();
   const steps = 90;
   const positions: number[] = [];
   const ribbonPos: number[] = [];
-  let prev: [number, number] | null = null;
+  const yLift = 0.03; // sit slightly above the terrain to avoid z-fighting
+  let prev: [number, number, number] | null = null;
   for (let i = 0; i <= steps; i++) {
     const t = i / steps;
-    // Quadratic bezier through the via-point for a gentle S-curve
     const u = 1 - t;
     const x = u * u * cx1 + 2 * u * t * viaX + t * t * cx2;
     const z = u * u * cz1 + 2 * u * t * viaZ + t * t * cz2;
+    const y = sampleGroundHeight(x, z) + yLift;
     if (prev) {
-      // Ribbon: two triangles per step, forming a strip of width `w`
       const dx = x - prev[0];
-      const dz = z - prev[1];
+      const dz = z - prev[2];
       const len = Math.hypot(dx, dz) || 1;
-      const nx = -dz / len; // normal
+      const nx = -dz / len;
       const nz = dx / len;
       const w = 0.9;
+      // Lift each ribbon edge to the terrain at its own x/z so the strip
+      // conforms to the ground on both sides.
+      const pyL = sampleGroundHeight(prev[0] + nx * w, prev[2] + nz * w) + yLift;
+      const pyR = sampleGroundHeight(prev[0] - nx * w, prev[2] - nz * w) + yLift;
+      const yL = sampleGroundHeight(x + nx * w, z + nz * w) + yLift;
+      const yR = sampleGroundHeight(x - nx * w, z - nz * w) + yLift;
       ribbonPos.push(
-        prev[0] + nx * w, 0.005, prev[1] + nz * w,
-        x + nx * w, 0.005, z + nz * w,
-        prev[0] - nx * w, 0.005, prev[1] - nz * w,
-        x + nx * w, 0.005, z + nz * w,
-        x - nx * w, 0.005, z + nz * w,
-        prev[0] - nx * w, 0.005, prev[1] - nz * w,
+        prev[0] + nx * w, pyL, prev[2] + nz * w,
+        x + nx * w, yL, z + nz * w,
+        prev[0] - nx * w, pyR, prev[2] - nz * w,
+        x + nx * w, yL, z + nz * w,
+        x - nx * w, yR, z + nz * w,
+        prev[0] - nx * w, pyR, prev[2] - nz * w,
       );
-      // Dark scribble marks along the path center
-      positions.push(prev[0], 0.008, prev[1], x, 0.008, z);
+      positions.push(prev[0], prev[1] + 0.002, prev[2], x, y + 0.002, z);
     }
-    prev = [x, z];
+    prev = [x, y, z];
   }
   const ribbonGeo = new BufferGeometry();
   ribbonGeo.setAttribute("position", new Float32BufferAttribute(ribbonPos, 3));
   const ribbonTex = makeWatercolorTexture("#c9ae7b", 600, 256, 22, 8, 0.5);
-  g.add(new Mesh(ribbonGeo, new MeshBasicMaterial({ map: ribbonTex, color: new Color("#d6b988"), transparent: true, opacity: 0.85, depthWrite: false })));
+  g.add(new Mesh(ribbonGeo, new MeshBasicMaterial({ map: ribbonTex, color: new Color("#d6b988"), transparent: true, opacity: 0.85, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 })));
 
   const centerGeo = new BufferGeometry();
   centerGeo.setAttribute("position", new Float32BufferAttribute(positions, 3));
@@ -959,20 +964,32 @@ export function buildWorld(worldWidth: number, worldDepth: number): { scene: Sce
 
   const rand = seededRand(42);
 
-  // Ground texture layers: grass patches, dirt patches, ink splatters
+  // Ground texture layers: grass patches, dirt patches, ink splatters.
+  // Each is lifted to the terrain height so they lie on the hills.
   for (let i = 0; i < 45; i++) {
     const gx = rand() * worldWidth;
     const gz = rand() * worldDepth;
     const gr = 1.2 + rand() * 1.5;
-    worldRoot.add(makeGroundPatch(gx, gz, gr, grassPatchTex, new Color("#8db866"), 0.55 + rand() * 0.25));
+    const patch = makeGroundPatch(gx, gz, gr, grassPatchTex, new Color("#8db866"), 0.55 + rand() * 0.25);
+    patch.position.y = sampleGroundHeight(gx, gz) + 0.02;
+    worldRoot.add(patch);
   }
   for (let i = 0; i < 22; i++) {
     const gx = rand() * worldWidth;
     const gz = rand() * worldDepth;
     const gr = 0.8 + rand() * 1.4;
-    worldRoot.add(makeGroundPatch(gx, gz, gr, dirtPatchTex, new Color("#a07a4a"), 0.5 + rand() * 0.25));
+    const patch = makeGroundPatch(gx, gz, gr, dirtPatchTex, new Color("#a07a4a"), 0.5 + rand() * 0.25);
+    patch.position.y = sampleGroundHeight(gx, gz) + 0.02;
+    worldRoot.add(patch);
   }
-  worldRoot.add(makeInkSplatters(rand, worldWidth, worldDepth, 60));
+  const splatters = makeInkSplatters(rand, worldWidth, worldDepth, 60);
+  // splatters is actually a Group; each child mesh has a preassigned y=0.007
+  // and we want them raised per-position. Iterate and adjust.
+  (splatters as unknown as { children: { position: { x: number; y: number; z: number } }[] })
+    .children.forEach((m) => {
+      m.position.y = sampleGroundHeight(m.position.x, m.position.z) + 0.03;
+    });
+  worldRoot.add(splatters);
 
   worldRoot.add(makeGroundStrokes(rand, worldWidth, worldDepth));
   worldRoot.add(makePebbles(rand, worldWidth, worldDepth));
