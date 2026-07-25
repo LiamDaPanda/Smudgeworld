@@ -40,14 +40,20 @@ A snapshot's **grade** is how sharp it develops:
 One continuous 120x90 map, laid out as five places rather than an even
 scatter of trees:
 
-- **The green** — the central lawn you spawn on. Open, bright, a gravel
-  circle where four walks meet.
-- **The grove** — mature closed canopy, dark floor, leaf litter, thick
-  undergrowth. You lose the horizon in here.
-- **The garden** — ornamental. Small trees, flower beds, benches.
-- **The wilds** — sparse and stunted, rock-strewn, dry olive ground.
-- **The waterside** — the pond, its sandy shore, and the massif behind it
-  with the falls coming down a notch in the cliff.
+- **The green** — the central lawn you spawn on. Bright turf, long drifts of
+  daisies, a gravel circle where four walks meet.
+- **The grove** — mature closed canopy on a dark floor. Birch stems and
+  conifers, ferns, fallen mossy logs, toadstools. You lose the horizon here.
+- **The garden** — ornamental. Pruned little trees, some in blossom, clipped
+  box hedges, tight beds of colour, benches, rose arches over the walk.
+- **The wilds** — dry olive ground, dead snags, boulders, cairns, heather.
+- **The waterside** — the pond with a reed fringe and a sandy shore, willows
+  leaning over it, driftwood, and the massif behind with the falls coming
+  down a notch in the cliff.
+
+Each region is a different plant list, not the same plants at a different
+spacing — silhouette is what tells you where you are from across the park.
+Ground colour shifts with it, so a border reads even with nothing on it.
 
 Walks spoke out from the green to each of the others, bending around the
 water and petering out where they arrive rather than stopping dead. Nothing

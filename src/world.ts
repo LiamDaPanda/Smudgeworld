@@ -1,5 +1,6 @@
 import {
   AmbientLight,
+  BoxGeometry,
   BufferGeometry,
   CanvasTexture,
   CircleGeometry,
@@ -520,9 +521,193 @@ function makeConiferTree(rand: () => number): Group {
   return tree;
 }
 
-// One-shot tree factory that mixes deciduous and occasional conifers.
-function makeTree(rand: () => number): Group {
-  return rand() < 0.2 ? makeConiferTree(rand) : makeDeciduousTree(rand);
+// --- Region-specific trees ---
+// Each region gets a silhouette you can read from across the park. Planting
+// density alone wasn't enough: five patches of the same tree at five
+// densities still looks like one wood with thin bits.
+
+/** Birch: pale slender trunk with dark bark dashes, crown carried high. */
+function makeBirchTree(rand: () => number): Group {
+  const tree = new Group();
+  const trunkH = 2.3 + rand() * 1.0;
+  const trunkR = 0.06 + rand() * 0.02;
+  const trunk = outlinedMesh(
+    new CylinderGeometry(trunkR * 0.7, trunkR, trunkH, 6),
+    { fill: new Color("#ddd7c4"), edgeThreshold: 60, toon: true }
+  );
+  trunk.position.y = trunkH / 2;
+  // A slight lean, which is most of what makes a stand of birch read as birch
+  trunk.rotation.z = (rand() - 0.5) * 0.1;
+  tree.add(trunk);
+
+  // Bark dashes — short horizontal ticks, denser toward the base
+  const dashes: number[] = [];
+  for (let i = 0; i < 16; i++) {
+    const t = rand() ** 1.5;
+    const y = 0.15 + t * trunkH * 0.85;
+    const a = rand() * Math.PI * 2;
+    const w = trunkR * (0.5 + rand() * 0.9);
+    dashes.push(
+      Math.cos(a) * trunkR * 1.02 - Math.sin(a) * w, y, Math.sin(a) * trunkR * 1.02 + Math.cos(a) * w,
+      Math.cos(a) * trunkR * 1.02 + Math.sin(a) * w, y, Math.sin(a) * trunkR * 1.02 - Math.cos(a) * w
+    );
+  }
+  const dashGeo = new BufferGeometry();
+  dashGeo.setAttribute("position", new Float32BufferAttribute(dashes, 3));
+  tree.add(new LineSegments(dashGeo, new LineBasicMaterial({ color: INK, transparent: true, opacity: 0.7 })));
+
+  const crownR = 1.0 + rand() * 0.4;
+  for (let i = 0; i < 2; i++) {
+    const r = crownR * (i === 0 ? 1 : 0.62);
+    const idx = Math.floor(rand() * crownTex.length);
+    const lobe = outlinedMesh(new IcosahedronGeometry(r, 1), {
+      map: crownTex[idx],
+      fill: new Color("#a8bf7c"),
+      edgeThreshold: 45, sketchPasses: 2, toon: true,
+    });
+    const a = rand() * Math.PI * 2;
+    lobe.position.set(Math.cos(a) * crownR * 0.4 * i, trunkH + r * 0.3 + i * 0.3, Math.sin(a) * crownR * 0.4 * i);
+    lobe.scale.set(1.1, 0.85, 1.1);
+    tree.add(lobe);
+  }
+  return tree;
+}
+
+/** Dead snag: no crown at all, just a broken trunk and bare forks. */
+function makeSnagTree(rand: () => number): Group {
+  const tree = new Group();
+  const trunkH = 1.4 + rand() * 1.3;
+  const trunkR = 0.1 + rand() * 0.05;
+  const trunk = outlinedMesh(
+    new CylinderGeometry(trunkR * 0.45, trunkR * 1.2, trunkH, 6),
+    { map: trunkTex, fill: new Color("#9a9080"), edgeThreshold: 55, toon: true }
+  );
+  trunk.position.y = trunkH / 2;
+  trunk.rotation.z = (rand() - 0.5) * 0.22;
+  tree.add(trunk);
+
+  // Bare forks: each branch is a two-segment kink so it doesn't read as a spike
+  const limbs: number[] = [];
+  const count = 3 + Math.floor(rand() * 3);
+  for (let i = 0; i < count; i++) {
+    const a = (i / count) * Math.PI * 2 + rand() * 0.7;
+    const y0 = trunkH * (0.5 + rand() * 0.45);
+    const l1 = 0.35 + rand() * 0.4;
+    const l2 = 0.25 + rand() * 0.35;
+    const x1 = Math.cos(a) * l1, z1 = Math.sin(a) * l1, y1 = y0 + l1 * (0.5 + rand() * 0.5);
+    const x2 = x1 + Math.cos(a + (rand() - 0.5)) * l2;
+    const z2 = z1 + Math.sin(a + (rand() - 0.5)) * l2;
+    const y2 = y1 + l2 * (0.3 + rand() * 0.7);
+    limbs.push(0, y0, 0, x1, y1, z1, x1, y1, z1, x2, y2, z2);
+  }
+  const limbGeo = new BufferGeometry();
+  limbGeo.setAttribute("position", new Float32BufferAttribute(limbs, 3));
+  tree.add(new LineSegments(limbGeo, new LineBasicMaterial({ color: new Color("#6b6355") })));
+  return tree;
+}
+
+/** Willow: short trunk, broad low crown, curtains of hanging strands. */
+function makeWillowTree(rand: () => number): Group {
+  const tree = new Group();
+  const trunkH = 1.1 + rand() * 0.5;
+  const trunkR = 0.16 + rand() * 0.06;
+  const trunk = outlinedMesh(
+    new CylinderGeometry(trunkR * 0.8, trunkR * 1.4, trunkH, 7),
+    { map: trunkTex, fill: new Color("#94795a"), edgeThreshold: 60, toon: true }
+  );
+  trunk.position.y = trunkH / 2;
+  tree.add(trunk);
+
+  const crownR = 1.3 + rand() * 0.5;
+  const crown = outlinedMesh(new IcosahedronGeometry(crownR, 1), {
+    map: crownTex[3],
+    fill: new Color("#9fb877"),
+    edgeThreshold: 45, sketchPasses: 2, toon: true,
+  });
+  crown.position.y = trunkH + crownR * 0.35;
+  crown.scale.set(1.25, 0.6, 1.25);
+  tree.add(crown);
+
+  // Hanging strands, longest at the crown's edge — the whole point of a willow
+  const strands: number[] = [];
+  for (let i = 0; i < 64; i++) {
+    const a = rand() * Math.PI * 2;
+    const d = (0.45 + rand() * 0.55) * crownR * 1.2;
+    const top = trunkH + crownR * 0.35 - Math.sqrt(Math.max(0, 1 - (d / (crownR * 1.25)) ** 2)) * crownR * 0.2;
+    const len = 0.5 + rand() * 1.1;
+    const x = Math.cos(a) * d, z = Math.sin(a) * d;
+    // Two segments with a slight outward drift so the curtain isn't ruled
+    const midY = top - len * 0.55;
+    strands.push(
+      x, top, z, x + (rand() - 0.5) * 0.08, midY, z + (rand() - 0.5) * 0.08,
+      x + (rand() - 0.5) * 0.08, midY, z + (rand() - 0.5) * 0.08,
+      x + (rand() - 0.5) * 0.14, top - len, z + (rand() - 0.5) * 0.14
+    );
+  }
+  const strandGeo = new BufferGeometry();
+  strandGeo.setAttribute("position", new Float32BufferAttribute(strands, 3));
+  tree.add(new LineSegments(strandGeo, new LineBasicMaterial({
+    color: new Color("#6f8c4e"), transparent: true, opacity: 0.75,
+  })));
+  return tree;
+}
+
+/** Ornamental: small, tightly rounded, sometimes in blossom. */
+const BLOSSOM_HEXES = ["#e8bcc8", "#f0e2e6", "#e6cddc"];
+function makeOrnamentalTree(rand: () => number): Group {
+  const tree = new Group();
+  const trunkH = 1.0 + rand() * 0.5;
+  const trunkR = 0.07 + rand() * 0.03;
+  const trunk = outlinedMesh(
+    new CylinderGeometry(trunkR * 0.8, trunkR * 1.2, trunkH, 6),
+    { map: trunkTex, fill: new Color("#9d7f5c"), edgeThreshold: 60, toon: true }
+  );
+  trunk.position.y = trunkH / 2;
+  tree.add(trunk);
+
+  const blossom = rand() < 0.45;
+  const crownR = 0.65 + rand() * 0.3;
+  const idx = Math.floor(rand() * crownTex.length);
+  const crown = outlinedMesh(new IcosahedronGeometry(crownR, 1), {
+    map: blossom ? undefined : crownTex[idx],
+    fill: blossom
+      ? new Color(BLOSSOM_HEXES[Math.floor(rand() * BLOSSOM_HEXES.length)])
+      : new Color("#8fae66"),
+    edgeThreshold: 45, sketchPasses: 2, toon: true,
+  });
+  // Clipped flat underneath — these are pruned trees, not wild ones
+  crown.position.y = trunkH + crownR * 0.75;
+  crown.scale.set(1.15, 0.95, 1.15);
+  tree.add(crown);
+
+  const scribbles = makeFoliageScribbles(
+    rand, crownR * 1.02, 45, new Color(blossom ? "#b98a9c" : "#3d5228")
+  );
+  scribbles.position.copy(crown.position);
+  scribbles.scale.copy(crown.scale);
+  tree.add(scribbles);
+  return tree;
+}
+
+export type TreeKind = "mixed" | "birch" | "snag" | "willow" | "ornamental" | "conifer";
+
+function makeTree(rand: () => number, kind: TreeKind = "mixed"): Group {
+  switch (kind) {
+    case "birch": return makeBirchTree(rand);
+    case "snag": return makeSnagTree(rand);
+    case "willow": return makeWillowTree(rand);
+    case "ornamental": return makeOrnamentalTree(rand);
+    case "conifer": return makeConiferTree(rand);
+    default: return rand() < 0.2 ? makeConiferTree(rand) : makeDeciduousTree(rand);
+  }
+}
+
+/** Pick from a weighted mix, so a region reads as a species blend not a monoculture. */
+function pickKind<T>(rand: () => number, mix: [T, number][]): T {
+  const total = mix.reduce((s, m) => s + m[1], 0);
+  let r = rand() * total;
+  for (const [k, w] of mix) { r -= w; if (r <= 0) return k; }
+  return mix[mix.length - 1][0];
 }
 
 function makeBush(rand: () => number): Group {
@@ -553,6 +738,341 @@ function makeBush(rand: () => number): Group {
   const geo = new BufferGeometry();
   geo.setAttribute("position", new Float32BufferAttribute(shade, 3));
   g.add(new LineSegments(geo, new LineBasicMaterial({ color: INK_SOFT, transparent: true, opacity: 0.4 })));
+  return g;
+}
+
+/** Fern: a low spray of arching fronds, drawn as lines with side barbs. */
+function makeFern(rand: () => number): Group {
+  const g = new Group();
+  const fronds = 5 + Math.floor(rand() * 4);
+  const pos: number[] = [];
+  for (let f = 0; f < fronds; f++) {
+    const a = (f / fronds) * Math.PI * 2 + rand() * 0.5;
+    const len = 0.4 + rand() * 0.35;
+    const lift = 0.3 + rand() * 0.25;
+    const segs = 5;
+    let px = 0, py = 0.02, pz = 0;
+    for (let s = 1; s <= segs; s++) {
+      const t = s / segs;
+      // Arch: rises fast, then bends over and drops toward the tip
+      const x = Math.cos(a) * len * t;
+      const z = Math.sin(a) * len * t;
+      const y = 0.02 + lift * Math.sin(t * Math.PI * 0.78);
+      pos.push(px, py, pz, x, y, z);
+      // Barbs either side of the rachis
+      const bw = 0.075 * (1 - t) + 0.02;
+      pos.push(x, y, z, x - Math.sin(a) * bw, y + 0.03, z + Math.cos(a) * bw);
+      pos.push(x, y, z, x + Math.sin(a) * bw, y + 0.03, z - Math.cos(a) * bw);
+      px = x; py = y; pz = z;
+    }
+  }
+  const geo = new BufferGeometry();
+  geo.setAttribute("position", new Float32BufferAttribute(pos, 3));
+  g.add(new LineSegments(geo, new LineBasicMaterial({
+    color: new Color("#3f5c30"), transparent: true, opacity: 0.9,
+  })));
+  return g;
+}
+
+/** Heather: a squat dull mound with a dusting of rusty flower tips. */
+function makeHeather(rand: () => number): Group {
+  const g = new Group();
+  const r = 0.32 + rand() * 0.22;
+  const mound = outlinedMesh(new IcosahedronGeometry(r, 1), {
+    fill: new Color(rand() < 0.5 ? "#77804f" : "#697544"),
+    edgeThreshold: 40, toon: true,
+  });
+  mound.position.y = r * 0.6;
+  mound.scale.set(1.2, 0.8, 1.2);
+  g.add(mound);
+
+  const tips: number[] = [];
+  for (let i = 0; i < 30; i++) {
+    const a = rand() * Math.PI * 2;
+    const d = Math.sqrt(rand()) * r * 1.1;
+    const y = r * 0.75;
+    tips.push(Math.cos(a) * d, y, Math.sin(a) * d,
+              Math.cos(a) * d, y + 0.09 + rand() * 0.1, Math.sin(a) * d);
+  }
+  const geo = new BufferGeometry();
+  geo.setAttribute("position", new Float32BufferAttribute(tips, 3));
+  g.add(new LineSegments(geo, new LineBasicMaterial({
+    color: new Color("#9c7089"), transparent: true, opacity: 0.85,
+  })));
+  return g;
+}
+
+/** Clipped box hedge: a flat-topped block, the one square silhouette in the park. */
+function makeHedge(rand: () => number): Group {
+  const g = new Group();
+  const w = 0.8 + rand() * 1.0;
+  const h = 0.45 + rand() * 0.22;
+  const d = 0.42 + rand() * 0.16;
+  const box = outlinedMesh(new BoxGeometry(w, h, d), {
+    fill: new Color("#6d8c55"), edgeThreshold: 20, sketchPasses: 2, toon: true,
+  });
+  box.position.y = h / 2;
+  g.add(box);
+
+  // Clipped-leaf texture: short ticks along the top edge and the long faces
+  const ticks: number[] = [];
+  for (let i = 0; i < 40; i++) {
+    const x = (rand() - 0.5) * w;
+    const face = rand();
+    if (face < 0.4) {
+      ticks.push(x, h, (rand() - 0.5) * d, x + (rand() - 0.5) * 0.06, h + 0.04 + rand() * 0.04, (rand() - 0.5) * d);
+    } else {
+      const zz = face < 0.7 ? d / 2 : -d / 2;
+      const y = rand() * h;
+      ticks.push(x, y, zz, x + (rand() - 0.5) * 0.05, y + 0.05, zz);
+    }
+  }
+  const geo = new BufferGeometry();
+  geo.setAttribute("position", new Float32BufferAttribute(ticks, 3));
+  g.add(new LineSegments(geo, new LineBasicMaterial({
+    color: new Color("#33421f"), transparent: true, opacity: 0.75,
+  })));
+  return g;
+}
+
+/** Reeds: a stand of tall blades, some topped with a cattail head. */
+function makeReeds(rand: () => number): Group {
+  const g = new Group();
+  const n = 9 + Math.floor(rand() * 8);
+  const blades: number[] = [];
+  for (let i = 0; i < n; i++) {
+    const a = rand() * Math.PI * 2;
+    const d = Math.sqrt(rand()) * 0.32;
+    const x = Math.cos(a) * d, z = Math.sin(a) * d;
+    const h = 0.7 + rand() * 0.8;
+    const lean = (rand() - 0.5) * 0.28;
+    const midY = h * 0.6;
+    blades.push(x, 0, z, x + lean * 0.4, midY, z + lean * 0.3);
+    blades.push(x + lean * 0.4, midY, z + lean * 0.3, x + lean, h, z + lean * 0.8);
+
+    if (rand() < 0.35) {
+      const head = new Mesh(
+        new CylinderGeometry(0.035, 0.035, 0.2, 5),
+        new MeshBasicMaterial({ color: new Color("#7c5a3a") })
+      );
+      head.position.set(x + lean, h + 0.08, z + lean * 0.8);
+      g.add(head);
+    }
+  }
+  const geo = new BufferGeometry();
+  geo.setAttribute("position", new Float32BufferAttribute(blades, 3));
+  g.add(new LineSegments(geo, new LineBasicMaterial({
+    color: new Color("#5f7a45"), transparent: true, opacity: 0.9,
+  })));
+  return g;
+}
+
+export type BushKind = "leafy" | "fern" | "heather" | "hedge" | "reeds";
+
+function makeUndergrowth(rand: () => number, kind: BushKind): Group {
+  switch (kind) {
+    case "fern": return makeFern(rand);
+    case "heather": return makeHeather(rand);
+    case "hedge": return makeHedge(rand);
+    case "reeds": return makeReeds(rand);
+    default: return makeBush(rand);
+  }
+}
+
+// --- Region signature props ---
+
+/** Fallen log with a mossy top and a scatter of bracket fungi. Grove. */
+function makeFallenLog(rand: () => number): Group {
+  const g = new Group();
+  const len = 1.6 + rand() * 1.6;
+  const r = 0.16 + rand() * 0.08;
+  const log = outlinedMesh(new CylinderGeometry(r * 0.8, r, len, 7), {
+    map: trunkTex, fill: new Color("#8b7355"), edgeThreshold: 55, toon: true,
+  });
+  log.rotation.z = Math.PI / 2;
+  log.position.y = r;
+  g.add(log);
+
+  // Moss along the upper side
+  const moss: number[] = [];
+  for (let i = 0; i < 34; i++) {
+    const x = (rand() - 0.5) * len * 0.92;
+    const a = -Math.PI / 2 + (rand() - 0.5) * 1.5;
+    const y = r + Math.sin(-a) * r * 0.4;
+    const z = Math.cos(a) * r * 0.75;
+    moss.push(x, y, z, x + (rand() - 0.5) * 0.05, y + 0.05 + rand() * 0.05, z);
+  }
+  const mossGeo = new BufferGeometry();
+  mossGeo.setAttribute("position", new Float32BufferAttribute(moss, 3));
+  g.add(new LineSegments(mossGeo, new LineBasicMaterial({
+    color: new Color("#4d6b34"), transparent: true, opacity: 0.9,
+  })));
+
+  for (let i = 0; i < 2 + Math.floor(rand() * 3); i++) {
+    const cap = new Mesh(
+      new CylinderGeometry(0.09 + rand() * 0.05, 0.02, 0.05, 7),
+      new MeshBasicMaterial({ color: new Color("#c9b48c") })
+    );
+    cap.position.set((rand() - 0.5) * len * 0.8, r * 0.9, r * 0.7);
+    cap.rotation.x = Math.PI / 2.4;
+    g.add(cap);
+  }
+  g.rotation.y = rand() * Math.PI;
+  return g;
+}
+
+/** A little cluster of toadstools. Grove. */
+function makeMushrooms(rand: () => number): Group {
+  const g = new Group();
+  for (let i = 0; i < 2 + Math.floor(rand() * 4); i++) {
+    const h = 0.07 + rand() * 0.09;
+    const cr = 0.05 + rand() * 0.05;
+    const x = (rand() - 0.5) * 0.35, z = (rand() - 0.5) * 0.35;
+    const stem = new Mesh(
+      new CylinderGeometry(cr * 0.28, cr * 0.34, h, 5),
+      new MeshBasicMaterial({ color: new Color("#e5ddc8") })
+    );
+    stem.position.set(x, h / 2, z);
+    g.add(stem);
+    const cap = new Mesh(
+      new ConeGeometry(cr, cr * 0.85, 7),
+      new MeshBasicMaterial({ color: new Color(rand() < 0.4 ? "#b3624f" : "#8d7a5c") })
+    );
+    cap.position.set(x, h + cr * 0.3, z);
+    g.add(cap);
+    g.add(new LineSegments(
+      new EdgesGeometry(cap.geometry, 24),
+      new LineBasicMaterial({ color: INK, transparent: true, opacity: 0.55 })
+    ).translateX(x).translateY(h + cr * 0.3).translateZ(z));
+  }
+  return g;
+}
+
+/** Stacked flat stones. Wilds. */
+function makeCairn(rand: () => number): Group {
+  const g = new Group();
+  let y = 0;
+  const n = 4 + Math.floor(rand() * 3);
+  for (let i = 0; i < n; i++) {
+    const t = i / n;
+    const r = (0.3 - t * 0.16) * (0.85 + rand() * 0.3);
+    const h = 0.09 + rand() * 0.07;
+    const stone = outlinedMesh(new CylinderGeometry(r * 0.85, r, h, 6), {
+      map: rockTex, fill: new Color(["#a29b90", "#98918a", "#ada69a"][Math.floor(rand() * 3)]),
+      edgeThreshold: 30, toon: true,
+    });
+    stone.position.set((rand() - 0.5) * 0.05, y + h / 2, (rand() - 0.5) * 0.05);
+    stone.rotation.y = rand() * Math.PI;
+    g.add(stone);
+    y += h;
+  }
+  return g;
+}
+
+/** Bleached driftwood, half-buried. Waterside. */
+function makeDriftwood(rand: () => number): Group {
+  const g = new Group();
+  const len = 0.9 + rand() * 1.0;
+  const r = 0.07 + rand() * 0.05;
+  const log = outlinedMesh(new CylinderGeometry(r * 0.5, r, len, 6), {
+    fill: new Color("#c4b9a4"), edgeThreshold: 50, toon: true,
+  });
+  log.rotation.z = Math.PI / 2;
+  log.rotation.x = (rand() - 0.5) * 0.5;
+  log.position.y = r * 0.7;
+  g.add(log);
+  const limbs: number[] = [];
+  for (let i = 0; i < 2 + Math.floor(rand() * 2); i++) {
+    const x = (rand() - 0.5) * len * 0.7;
+    const a = rand() * Math.PI * 2;
+    const l = 0.16 + rand() * 0.22;
+    limbs.push(x, r * 0.7, 0, x + Math.cos(a) * l, r * 0.7 + Math.abs(Math.sin(a)) * l * 0.6, Math.sin(a) * l);
+  }
+  const geo = new BufferGeometry();
+  geo.setAttribute("position", new Float32BufferAttribute(limbs, 3));
+  g.add(new LineSegments(geo, new LineBasicMaterial({ color: new Color("#8d8271") })));
+  g.rotation.y = rand() * Math.PI;
+  return g;
+}
+
+/** A soft-edged disc, so point-sprite flower heads are round and not square. */
+const bloomSprite = (() => {
+  const c = document.createElement("canvas");
+  c.width = c.height = 32;
+  const ctx = c.getContext("2d")!;
+  const g = ctx.createRadialGradient(16, 16, 2, 16, 16, 15);
+  g.addColorStop(0, "rgba(255,255,255,1)");
+  g.addColorStop(0.72, "rgba(255,255,255,1)");
+  g.addColorStop(1, "rgba(255,255,255,0)");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 32, 32);
+  const t = new CanvasTexture(c);
+  t.needsUpdate = true;
+  return t;
+})();
+
+/** Iron arch over a walk, with a climbing rose on it. Garden. */
+function makeTrellisArch(rand: () => number): Group {
+  const g = new Group();
+  const w = 1.5, h = 2.3;
+  const bars: number[] = [];
+  const segs = 12;
+  for (let i = 0; i < segs; i++) {
+    const t0 = i / segs, t1 = (i + 1) / segs;
+    const p = (t: number) => {
+      // Two uprights joined by a semicircular head
+      if (t < 0.3) return [-w / 2, (t / 0.3) * (h - w / 2)];
+      if (t > 0.7) return [w / 2, ((1 - t) / 0.3) * (h - w / 2)];
+      const a = Math.PI * (1 - (t - 0.3) / 0.4);
+      return [Math.cos(a) * (w / 2), h - w / 2 + Math.sin(a) * (w / 2)];
+    };
+    const [x0, y0] = p(t0), [x1, y1] = p(t1);
+    bars.push(x0, y0, 0, x1, y1, 0);
+    bars.push(x0, y0, 0.28, x1, y1, 0.28);
+  }
+  for (let i = 0; i <= 4; i++) {
+    const t = 0.3 + (i / 4) * 0.4;
+    const a = Math.PI * (1 - (t - 0.3) / 0.4);
+    const x = Math.cos(a) * (w / 2), y = h - w / 2 + Math.sin(a) * (w / 2);
+    bars.push(x, y, 0, x, y, 0.28);
+  }
+  // Drawn three times with a little jitter, the same trick as the model
+  // outlines: a single-pixel ironwork line vanishes against the planting
+  // behind it, and the doubled strokes read as drawn metal.
+  for (let pass = 0; pass < 3; pass++) {
+    const j = pass === 0 ? 0 : 0.03 * pass;
+    const arr = bars.map((v) => v + (Math.random() - 0.5) * j);
+    const geo = new BufferGeometry();
+    geo.setAttribute("position", new Float32BufferAttribute(arr, 3));
+    g.add(new LineSegments(geo, new LineBasicMaterial({
+      color: new Color("#3f3f39"),
+      transparent: true,
+      opacity: pass === 0 ? 1 : 0.5 - pass * 0.12,
+    })));
+  }
+
+  // Rose growing over it
+  for (let i = 0; i < 26; i++) {
+    const t = 0.05 + rand() * 0.9;
+    const a = Math.PI * (1 - Math.min(1, Math.max(0, (t - 0.3) / 0.4)));
+    const onHead = t > 0.3 && t < 0.7;
+    const x = onHead ? Math.cos(a) * (w / 2) : (t < 0.3 ? -w / 2 : w / 2);
+    const y = onHead ? h - w / 2 + Math.sin(a) * (w / 2) : (t < 0.3 ? (t / 0.3) : (1 - t) / 0.3) * (h - w / 2);
+    const leaf = new Mesh(
+      new IcosahedronGeometry(0.055 + rand() * 0.045, 0),
+      new MeshBasicMaterial({ color: new Color("#6c8a4e") })
+    );
+    leaf.position.set(x + (rand() - 0.5) * 0.16, y + (rand() - 0.5) * 0.14, rand() * 0.28);
+    g.add(leaf);
+    if (rand() < 0.35) {
+      const bloom = new Mesh(
+        new IcosahedronGeometry(0.038, 0),
+        new MeshBasicMaterial({ color: new Color(BLOSSOM_HEXES[Math.floor(rand() * BLOSSOM_HEXES.length)]) })
+      );
+      bloom.position.copy(leaf.position).add(new Vector3(0.04, 0.05, 0.04));
+      g.add(bloom);
+    }
+  }
   return g;
 }
 
@@ -1340,11 +1860,14 @@ export function buildWorld(worldWidth: number, worldDepth: number, site: WorldSi
   const parkGroundTex = makeParkGroundTexture(
     worldWidth, worldDepth, GROUND_MARGIN,
     [
-      { ...regions.meadow, r: regions.meadow.r * 1.1, hex: "#9fca6b", density: 26, alpha: 0.3 },
-      { ...regions.grove, hex: "#6f8c52", density: 30, alpha: 0.32 },
-      { ...regions.garden, hex: "#93c078", density: 22, alpha: 0.26 },
-      { ...regions.wilds, hex: "#9d9c63", density: 22, alpha: 0.26 },
-      { ...regions.waterside, r: regions.waterside.r * 1.2, hex: "#8dbc78", density: 20, alpha: 0.26 },
+      // Pushed well apart. Five tints a few percent from each other all read
+      // as "grass" — the floor has to change colour when you cross a border
+      // or the regions only differ in what's planted on them.
+      { ...regions.meadow, r: regions.meadow.r * 1.1, hex: "#a8cf62", density: 30, alpha: 0.34 },
+      { ...regions.grove, hex: "#4f6d3a", density: 44, alpha: 0.4 },
+      { ...regions.garden, hex: "#8cc07c", density: 30, alpha: 0.3 },
+      { ...regions.wilds, hex: "#a89b56", density: 42, alpha: 0.4 },
+      { ...regions.waterside, r: regions.waterside.r * 1.2, hex: "#82b985", density: 26, alpha: 0.3 },
     ],
     pondCenter,
     7717
@@ -1548,11 +2071,11 @@ export function buildWorld(worldWidth: number, worldDepth: number, site: WorldSi
 
   const yAt = (x: number, z: number) => sampleGroundHeight(x, z);
 
-  const plantTree = (px: number, pz: number, s: number) => {
+  const plantTree = (px: number, pz: number, s: number, kind: TreeKind = "mixed") => {
     const footprint = 1.15 * s;
     place(px, pz, footprint);
     colliders.push({ x: px, z: pz, r: 0.42 * s }); // trunk only
-    const tree = makeTree(rand);
+    const tree = makeTree(rand, kind);
     tree.position.set(px, yAt(px, pz), pz);
     tree.scale.setScalar(s);
     worldRoot.add(tree);
@@ -1580,14 +2103,35 @@ export function buildWorld(worldWidth: number, worldDepth: number, site: WorldSi
   };
 
   // --- Trees, planted by region ---
-  // The grove is dense and mature; the meadow is a handful of specimens on
-  // open grass; the garden is ornamental; the wilds are sparse and stunted.
-  const treePlan: { zone: Region; count: number; scale: [number, number] }[] = [
-    { zone: regions.grove, count: 150, scale: [0.9, 1.35] },
-    { zone: regions.meadow, count: 26, scale: [1.0, 1.4] },
-    { zone: regions.garden, count: 40, scale: [0.8, 1.05] },
-    { zone: regions.wilds, count: 34, scale: [0.62, 0.9] },
-    { zone: regions.waterside, count: 26, scale: [0.85, 1.15] },
+  // Each region is planted with its own species mix, not just its own density.
+  // Density alone gave five patches of the same tree at five spacings, which
+  // from any distance is one wood with thin bits. Silhouette is what actually
+  // tells you which part of the park you're standing in: birch stems in the
+  // grove, bare snags in the wilds, willows over the water, clipped little
+  // ornamentals in the garden.
+  const treePlan: {
+    zone: Region; count: number; scale: [number, number]; mix: [TreeKind, number][];
+  }[] = [
+    {
+      zone: regions.grove, count: 150, scale: [0.9, 1.35],
+      mix: [["birch", 5], ["mixed", 4], ["conifer", 2]],
+    },
+    {
+      zone: regions.meadow, count: 26, scale: [1.0, 1.4],
+      mix: [["mixed", 1]],
+    },
+    {
+      zone: regions.garden, count: 40, scale: [0.8, 1.05],
+      mix: [["ornamental", 7], ["mixed", 2]],
+    },
+    {
+      zone: regions.wilds, count: 34, scale: [0.62, 0.9],
+      mix: [["snag", 5], ["conifer", 3], ["mixed", 2]],
+    },
+    {
+      zone: regions.waterside, count: 26, scale: [0.85, 1.15],
+      mix: [["willow", 5], ["mixed", 3], ["birch", 2]],
+    },
   ];
   for (const plan of treePlan) {
     for (let i = 0; i < plan.count; i++) {
@@ -1595,36 +2139,111 @@ export function buildWorld(worldWidth: number, worldDepth: number, site: WorldSi
       const p = pickIn(plan.zone, 1.15 * s);
       if (!p) continue;
       if (Math.hypot(p[0] - spawnX, p[1] - spawnZ) < treeClearRadius) continue;
-      plantTree(p[0], p[1], s);
+      plantTree(p[0], p[1], s, pickKind(rand, plan.mix));
     }
   }
-  // A scattering outside the named regions so the map has no bald patches
+  // A scattering to fill the ground between regions. It has to adopt the
+  // character of whatever region it lands in — dropping generic full-size
+  // deciduous trees into the garden and the wilds put big round crowns over
+  // both and undid the species mix entirely.
   for (let i = 0; i < 70; i++) {
-    const s = 0.75 + rand() * 0.45;
     const x = 3 + rand() * (worldWidth - 6);
     const z = 3 + rand() * (worldDepth - 6);
     if (Math.hypot(x - spawnX, z - spawnZ) < treeClearRadius) continue;
+    const host = treePlan.find(
+      (pl) => Math.hypot(x - pl.zone.x, z - pl.zone.z) < pl.zone.r
+    );
+    const scale = host ? host.scale : ([0.75, 1.2] as [number, number]);
+    const s = scale[0] + rand() * (scale[1] - scale[0]);
     if (!canPlace(x, z, 1.15 * s)) continue;
-    plantTree(x, z, s);
+    plantTree(x, z, s, host ? pickKind(rand, host.mix) : "mixed");
   }
 
-  // --- Undergrowth: thick in the grove, thin elsewhere ---
-  const bushPlan: { zone: Region; count: number }[] = [
-    { zone: regions.grove, count: 90 },
-    { zone: regions.wilds, count: 45 },
-    { zone: regions.garden, count: 40 },
-    { zone: regions.waterside, count: 26 },
-    { zone: regions.meadow, count: 16 },
+  // --- Undergrowth: a different plant in every region ---
+  const bushPlan: { zone: Region; count: number; mix: [BushKind, number][]; r: number }[] = [
+    { zone: regions.grove, count: 90, r: 0.55, mix: [["fern", 6], ["leafy", 4]] },
+    { zone: regions.wilds, count: 45, r: 0.55, mix: [["heather", 7], ["leafy", 2]] },
+    { zone: regions.garden, count: 40, r: 0.8, mix: [["hedge", 5], ["leafy", 4]] },
+    // No free-standing reeds out here — they belong on the bank, and scattered
+    // across the whole waterside region they read as tall grass on dry ground.
+    { zone: regions.waterside, count: 26, r: 0.5, mix: [["leafy", 5], ["fern", 2]] },
+    { zone: regions.meadow, count: 16, r: 0.55, mix: [["leafy", 1]] },
   ];
   for (const plan of bushPlan) {
     for (let i = 0; i < plan.count; i++) {
-      const p = pickIn(plan.zone, 0.55);
+      const p = pickIn(plan.zone, plan.r);
       if (!p) continue;
-      place(p[0], p[1], 0.55);
-      const bush = makeBush(rand);
+      place(p[0], p[1], plan.r);
+      const kind = pickKind(rand, plan.mix);
+      const bush = makeUndergrowth(rand, kind);
       bush.position.set(p[0], yAt(p[0], p[1]), p[1]);
+      // Hedges are the only solid undergrowth — you walk through a fern
+      if (kind === "hedge") {
+        bush.rotation.y = rand() * Math.PI;
+        colliders.push({ x: p[0], z: p[1], r: 0.6 });
+      }
       worldRoot.add(bush);
     }
+  }
+
+  // Reeds also fringe the pond itself, following the bank rather than being
+  // scattered through the region — a waterline without reeds looks cut out.
+  for (let i = 0; i < 34; i++) {
+    const a = (i / 34) * Math.PI * 2 + rand() * 0.14;
+    const d = pondCenter.radius + 0.1 + rand() * 0.7;
+    const rx = pondCenter.x + Math.cos(a) * d;
+    const rz = pondCenter.z + Math.sin(a) * d;
+    if (rx < 2 || rx > worldWidth - 2 || rz < 2 || rz > worldDepth - 2) continue;
+    // A clear arc on the near bank and on the falls' side: a continuous ring
+    // of reeds walls the water off from every angle you'd want to look at it.
+    if (rz < pondCenter.z - pondCenter.radius * 0.4) continue;
+    if (Math.abs(rx - pondCenter.x) < pondCenter.radius * 0.5 && rz > pondCenter.z) continue;
+    const reeds = makeReeds(rand);
+    reeds.position.set(rx, yAt(rx, rz), rz);
+    reeds.scale.setScalar(0.5 + rand() * 0.28);
+    worldRoot.add(reeds);
+  }
+
+  // --- Region signature props ---
+  // One or two objects per region that exist nowhere else, so each place has
+  // something you can name rather than only a different density of the same
+  // scenery.
+  const scatterProp = (
+    zone: Region, count: number, footprint: number,
+    make: () => Group, opts: { solid?: number; scale?: [number, number] } = {}
+  ) => {
+    for (let i = 0; i < count; i++) {
+      const p = pickIn(zone, footprint);
+      if (!p) continue;
+      place(p[0], p[1], footprint);
+      if (opts.solid) colliders.push({ x: p[0], z: p[1], r: opts.solid });
+      const obj = make();
+      obj.position.set(p[0], yAt(p[0], p[1]), p[1]);
+      if (opts.scale) obj.scale.setScalar(opts.scale[0] + rand() * (opts.scale[1] - opts.scale[0]));
+      worldRoot.add(obj);
+    }
+  };
+
+  scatterProp(regions.grove, 14, 1.1, () => makeFallenLog(rand), { solid: 0.7 });
+  scatterProp(regions.grove, 26, 0.3, () => makeMushrooms(rand));
+  scatterProp(regions.wilds, 9, 0.6, () => makeCairn(rand), { solid: 0.35 });
+  scatterProp(regions.waterside, 10, 0.6, () => makeDriftwood(rand), { solid: 0.3 });
+
+  // Two rose arches straddling the walk into the garden.
+  for (const t of [0.62, 0.86]) {
+    const [ax, az] = pathPointAt(
+      t, hub[0], hub[1], regions.garden.x, regions.garden.z,
+      worldWidth * 0.68, worldDepth * 0.70, pathAvoid
+    );
+    const [bx, bz] = pathPointAt(
+      t + 0.02, hub[0], hub[1], regions.garden.x, regions.garden.z,
+      worldWidth * 0.68, worldDepth * 0.70, pathAvoid
+    );
+    const arch = makeTrellisArch(rand);
+    arch.position.set(ax, yAt(ax, az), az);
+    // Square the arch across the walk, not along it
+    arch.rotation.y = Math.atan2(bx - ax, bz - az) + Math.PI / 2;
+    worldRoot.add(arch);
   }
 
   // --- Grass, everywhere, thickest on the open green ---
@@ -1691,6 +2310,59 @@ export function buildWorld(worldWidth: number, worldDepth: number, site: WorldSi
       }
     }
   }
+  // The green's own signature: long drifts of daisies running with the lie of
+  // the lawn. The garden's flowers come in tight round beds; these are loose
+  // sweeps, so the two don't read as the same planting at different spacings.
+  // Every stem in every drift goes into one geometry and every bloom into one
+  // point cloud — four hundred flowers as four hundred objects would cost more
+  // draw calls than the entire rest of the park.
+  {
+    const stemPos: number[] = [];
+    const bloomPos: number[] = [];
+    const bloomCol: number[] = [];
+    const white = new Color("#f4f1e6");
+    const cream = new Color("#ead98a");
+    for (let drift = 0; drift < 10; drift++) {
+      const a = rand() * Math.PI * 2;
+      const d = Math.sqrt(rand()) * regions.meadow.r * 0.9;
+      const cx = regions.meadow.x + Math.cos(a) * d;
+      const cz = regions.meadow.z + Math.sin(a) * d;
+      if (Math.hypot(cx - spawnX, cz - spawnZ) < 6) continue;
+      const dir = rand() * Math.PI * 2;
+      const len = 4 + rand() * 5;
+      const tint = rand() < 0.65 ? white : cream;
+      for (let i = 0; i < 46; i++) {
+        const t = rand();
+        // Thickest along the spine, thinning toward the edges of the sweep
+        const off = (rand() + rand() - 1) * 1.5;
+        const fx = cx + Math.cos(dir) * (t - 0.5) * len - Math.sin(dir) * off;
+        const fz = cz + Math.sin(dir) * (t - 0.5) * len + Math.cos(dir) * off;
+        if (fx < 2 || fx > worldWidth - 2 || fz < 2 || fz > worldDepth - 2) continue;
+        if (!canPlace(fx, fz, 0.05)) continue;
+        const y0 = yAt(fx, fz);
+        const h = 0.11 + rand() * 0.08;
+        stemPos.push(fx, y0, fz, fx + (rand() - 0.5) * 0.03, y0 + h, fz);
+        bloomPos.push(fx + (rand() - 0.5) * 0.03, y0 + h, fz);
+        bloomCol.push(tint.r, tint.g, tint.b);
+      }
+    }
+    const stemGeo = new BufferGeometry();
+    stemGeo.setAttribute("position", new Float32BufferAttribute(stemPos, 3));
+    worldRoot.add(new LineSegments(stemGeo, new LineBasicMaterial({
+      color: new Color("#4a6236"), transparent: true, opacity: 0.65,
+    })));
+    const bloomGeo = new BufferGeometry();
+    bloomGeo.setAttribute("position", new Float32BufferAttribute(bloomPos, 3));
+    bloomGeo.setAttribute("color", new Float32BufferAttribute(bloomCol, 3));
+    worldRoot.add(new Points(bloomGeo, new PointsMaterial({
+      size: 0.13, sizeAttenuation: true, vertexColors: true,
+      // Point sprites are square by default, which at this size reads as a
+      // scatter of paper chads rather than flower heads.
+      map: bloomSprite, alphaTest: 0.4,
+      transparent: true, opacity: 0.95, depthWrite: false,
+    })));
+  }
+
   // Butterflies over roughly a third of the beds
   spawnButterflies(worldRoot, bedCenters.filter((_, i) => i % 3 === 0));
 
