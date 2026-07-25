@@ -35,6 +35,32 @@ A snapshot's **grade** is how sharp it develops:
 - Completing a set pays out coins and camera gear — zoom lenses, faster shutters, night film.
 - Gear unlocks deeper zones hiding rarer smudges.
 
+## Narrative frame
+
+Deliberately thin — the story exists to make the economy feel inevitable
+rather than bolted on.
+
+You're a new field photographer commissioned by **the Survey**. An archivist,
+M. Ardley, writes to you as your record grows. The letters arrive on progress
+you already made (first plate, a better second take, a night capture, a
+completed run) and establish, in order:
+
+1. A photograph is the only clear likeness of a subject **anywhere** — including
+   in the archive itself. This is the root of all value.
+2. Your older takes aren't discarded; they're filed as **spares**. A murky plate
+   is still a true plate.
+3. Some subjects only surface at certain hours. **Miss the hour and it doesn't
+   come back around on your account** — but someone else was there.
+4. **Other photographers** are in the field with their own half-finished runs
+   and their own drawers of spares.
+5. The Survey keeps an **exchange**: spares posted against coin, missed hours
+   bought from someone who was there, and a small cut on every transaction
+   that keeps the coin honest.
+
+Point 5 is the marketplace, pre-announced as fiction before it exists as
+software. Nothing in the letters dictates plot, so the trading and market work
+can hang off this frame without rewriting it.
+
 ## Economy
 
 - Single currency: **coins**.
