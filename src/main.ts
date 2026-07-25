@@ -172,6 +172,53 @@ function startGame() {
 }
 
 document.getElementById("menu-start")?.addEventListener("click", startGame);
+
+// ---------------- PWA install ----------------
+type BIP = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: string }> };
+let deferredPrompt: BIP | null = null;
+const installBtn = document.getElementById("install-btn");
+const iosInstall = document.getElementById("ios-install");
+const iosClose = document.getElementById("ios-install-close");
+
+const isIOS = /iP(hone|ad|od)/.test(navigator.userAgent);
+const isStandalone =
+  window.matchMedia?.("(display-mode: standalone)").matches ||
+  (navigator as unknown as { standalone?: boolean }).standalone === true;
+
+if (!isStandalone) {
+  if (isIOS) {
+    installBtn?.classList.remove("hidden");
+    installBtn?.addEventListener("click", () => iosInstall?.classList.add("show"));
+    iosClose?.addEventListener("click", () => iosInstall?.classList.remove("show"));
+    iosInstall?.addEventListener("click", (e) => {
+      if (e.target === iosInstall) iosInstall.classList.remove("show");
+    });
+  } else {
+    window.addEventListener("beforeinstallprompt", (e) => {
+      e.preventDefault();
+      deferredPrompt = e as BIP;
+      installBtn?.classList.remove("hidden");
+    });
+    installBtn?.addEventListener("click", async () => {
+      if (!deferredPrompt) return;
+      await deferredPrompt.prompt();
+      const { outcome } = await deferredPrompt.userChoice;
+      if (outcome === "accepted") installBtn?.classList.add("hidden");
+      deferredPrompt = null;
+    });
+    window.addEventListener("appinstalled", () => {
+      installBtn?.classList.add("hidden");
+      deferredPrompt = null;
+    });
+  }
+}
+
+// Register the service worker so the site is installable and works offline.
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("sw.js").catch(() => {});
+  });
+}
 window.addEventListener("keydown", (e) => {
   if (!gameActive && !menu?.classList.contains("hidden") && (e.key === "Enter" || e.key === " ")) {
     startGame();

@@ -4,8 +4,15 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Smudgeworld" />
     <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="theme-color" content="#f4efe6" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#1a1a1a" media="(prefers-color-scheme: dark)" />
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="icon" type="image/svg+xml" href="icon.svg" />
+    <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png" />
+    <link rel="apple-touch-icon" href="apple-touch-icon.png" />
     <title>Smudgeworld</title>
     <style>
       :root {
@@ -216,6 +223,58 @@
       }
       .inv-card .meta .name { font-size: 12px; }
       .inv-card .meta .stamp { opacity: 0.6; font-size: 10px; font-style: italic; }
+
+      /* Install / add-to-home-screen affordance on the menu */
+      #install-btn {
+        background: transparent; color: #2b2b2b;
+        border: 1px solid #2b2b2b;
+        padding: 8px 18px;
+        font-family: Georgia, serif; font-size: 13px; letter-spacing: 0.14em;
+        cursor: pointer;
+        margin-top: 14px;
+      }
+      #install-btn:hover { background: #2b2b2b; color: #f4efe6; }
+      #install-btn.hidden { display: none; }
+      #ios-install {
+        position: fixed; inset: 0; z-index: 32;
+        display: none; align-items: center; justify-content: center;
+        background: rgba(30,30,25,0.75);
+        padding: 20px;
+      }
+      #ios-install.show { display: flex; }
+      #ios-install .panel {
+        background: #f4efe6; color: #2b2b2b;
+        border: 1.5px solid #2b2b2b;
+        box-shadow: 5px 5px 0 rgba(43,43,43,0.5);
+        max-width: 360px; padding: 20px 22px;
+        font-family: Georgia, serif; text-align: left; line-height: 1.5;
+      }
+      #ios-install .panel h3 { margin: 0 0 8px; font-weight: normal; letter-spacing: 0.06em; }
+      #ios-install .panel ol { padding-left: 20px; margin: 12px 0 16px; font-size: 14px; }
+      #ios-install .panel li { margin-bottom: 4px; }
+      #ios-install .panel .share-icon {
+        display: inline-block;
+        width: 14px; height: 18px;
+        vertical-align: middle;
+        border: 1px solid #2b2b2b;
+        border-top: none;
+        position: relative;
+        margin: 0 2px;
+      }
+      #ios-install .panel .share-icon::before {
+        content: ""; position: absolute; top: -10px; left: 50%; transform: translateX(-50%);
+        width: 2px; height: 10px; background: #2b2b2b;
+      }
+      #ios-install .panel .share-icon::after {
+        content: ""; position: absolute; top: -8px; left: 50%; transform: translate(-50%, 0) rotate(45deg);
+        width: 5px; height: 5px; border-top: 2px solid #2b2b2b; border-left: 2px solid #2b2b2b;
+      }
+      #ios-install .close { text-align: right; }
+      #ios-install button {
+        background: #2b2b2b; color: #f4efe6; border: none;
+        padding: 6px 14px; font-family: Georgia, serif; font-size: 13px;
+        cursor: pointer;
+      }
 
       /* Proximity prompt when near a smudge */
       #prox-prompt {
@@ -568,6 +627,18 @@
         <h1>SMUDGEWORLD</h1>
         <p class="tagline">Wander a smudged world with a camera around your neck.<br>Find the blurs. Snap them clear.</p>
         <button id="menu-start" type="button">ENTER</button>
+        <button id="install-btn" type="button" class="hidden">INSTALL</button>
+      </div>
+    </div>
+    <div id="ios-install" role="dialog" aria-modal="true">
+      <div class="panel">
+        <h3>Add Smudgeworld to your Home Screen</h3>
+        <ol>
+          <li>Tap the <span class="share-icon" aria-label="Share"></span> Share icon in Safari's toolbar.</li>
+          <li>Scroll and tap <strong>Add to Home Screen</strong>.</li>
+          <li>Tap <strong>Add</strong> — Smudgeworld launches full-screen like a native app.</li>
+        </ol>
+        <div class="close"><button type="button" id="ios-install-close">Got it</button></div>
       </div>
     </div>
     <div id="touch-controls">
