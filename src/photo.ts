@@ -109,6 +109,18 @@ export function startPhotoMode(smudge: Smudge, onComplete: OnComplete) {
   targetCtx.drawImage(subjectIllustration(smudge.name), 0, 0, subjectCanvas.width, subjectCanvas.height);
 
   el<HTMLElement>("#pv-name").textContent = smudge.name;
+  // First time in photo mode, spell out the timing mechanic — the focus ring
+  // is the one thing a player can't infer just by looking at it.
+  try {
+    if (!localStorage.getItem("smudgeworld-tip-shutter")) {
+      localStorage.setItem("smudgeworld-tip-shutter", "1");
+      const hint = document.querySelector<HTMLElement>(".pv-hint");
+      if (hint) {
+        hint.textContent = "The ring pulses — fire at its tightest for the sharpest shot";
+        hint.style.opacity = "1";
+      }
+    }
+  } catch { /* storage blocked — the default hint still reads fine */ }
   const ring = el<HTMLElement>("#pv-focus-ring");
   ring.style.transform = "translate(-50%, -50%) scale(1.6)";
 
