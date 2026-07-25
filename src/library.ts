@@ -151,6 +151,29 @@ export function renderInventory() {
   }
 }
 
+// ---------------- Persistence ----------------
+
+export function serializeLibrary(): { snapshots: Snapshot[]; completed: string[] } {
+  return {
+    snapshots: Array.from(bestBySubject.values()),
+    completed: Array.from(completedSets),
+  };
+}
+
+export function restoreLibrary(data: { snapshots?: Snapshot[]; completed?: string[] } | null) {
+  if (!data) return;
+  for (const s of data.snapshots ?? []) {
+    const prev = bestBySubject.get(s.subjectName);
+    if (!prev || s.clarity > prev.clarity) bestBySubject.set(s.subjectName, s);
+  }
+  for (const name of data.completed ?? []) completedSets.add(name);
+  renderLibrary();
+}
+
+export function getCapturedSubjects(): Set<string> {
+  return new Set(bestBySubject.keys());
+}
+
 export function openInventory() {
   const modal = document.getElementById("inventory-modal");
   if (!modal) return;

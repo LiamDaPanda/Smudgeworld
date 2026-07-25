@@ -1,5 +1,6 @@
 import {
   BoxGeometry,
+  CanvasTexture,
   CapsuleGeometry,
   Color,
   CylinderGeometry,
@@ -9,6 +10,7 @@ import {
   LineSegments,
   Mesh,
   MeshBasicMaterial,
+  PlaneGeometry,
   SphereGeometry,
 } from "three";
 import type { InputState, Player } from "./types.ts";
@@ -16,6 +18,7 @@ import type { InputState, Player } from "./types.ts";
 const INK = new Color("#1a1a1a");
 const CAMERA_TAN = new Color("#8b6b45");
 const WALK_SPEED = 4.6;
+const SPRINT_SPEED = 7.4;
 
 const HEAD_R = 0.19;
 const HEAD_Y = 1.66;
@@ -125,12 +128,34 @@ function makeTorso(): Group {
   return g;
 }
 
+// Soft radial blob shadow that travels with the player.
+function makeBlobShadow(): Mesh {
+  const c = document.createElement("canvas");
+  c.width = c.height = 128;
+  const ctx = c.getContext("2d")!;
+  const g = ctx.createRadialGradient(64, 64, 8, 64, 64, 62);
+  g.addColorStop(0, "rgba(30,28,22,0.4)");
+  g.addColorStop(1, "rgba(30,28,22,0)");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 128, 128);
+  const tex = new CanvasTexture(c);
+  tex.needsUpdate = true;
+  const m = new Mesh(
+    new PlaneGeometry(0.9, 0.6),
+    new MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false })
+  );
+  m.rotation.x = -Math.PI / 2;
+  m.position.y = 0.012;
+  return m;
+}
+
 export function createPlayer(startX: number, startZ: number): Player {
   const root = new Group();
   root.position.set(startX, 0, startZ);
 
   root.add(makeHead());
   root.add(makeTorso());
+  root.add(makeBlobShadow());
 
   const cameraProp = makeCamera();
   cameraProp.position.set(0, SHOULDER_Y - 0.16, 0.13);
@@ -183,10 +208,11 @@ export function updatePlayer(p: Player, input: InputState, dt: number, bounds: W
   const mag = Math.hypot(mx, mz);
   if (mag > 1) { mx /= mag; mz /= mag; }
   const moving = mag > 0.05;
+  const speed = input.sprint ? SPRINT_SPEED : WALK_SPEED;
 
   if (moving) {
-    p.worldX += mx * WALK_SPEED * dt;
-    p.worldZ += mz * WALK_SPEED * dt;
+    p.worldX += mx * speed * dt;
+    p.worldZ += mz * speed * dt;
     p.worldX = Math.max(bounds.minX, Math.min(bounds.maxX, p.worldX));
     p.worldZ = Math.max(bounds.minZ, Math.min(bounds.maxZ, p.worldZ));
 
@@ -196,7 +222,7 @@ export function updatePlayer(p: Player, input: InputState, dt: number, bounds: W
     p.yaw += diff * Math.min(1, dt * 12);
   }
 
-  p.walkPhase += (moving ? WALK_SPEED : 0) * dt * 2.2;
+  p.walkPhase += (moving ? speed : 0) * dt * 2.2;
 
   p.root.position.set(p.worldX, 0, p.worldZ);
   p.root.rotation.y = p.yaw;

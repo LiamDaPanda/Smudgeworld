@@ -212,7 +212,11 @@ export function createInput(canvas: HTMLCanvasElement): InputState {
       if (keys.has("s") || keys.has("arrowdown")) z += 1;
       return Math.max(-1, Math.min(1, z));
     },
-    get cameraHeld() { return keys.has("shift") || touchCam; },
+    get cameraHeld() { return touchCam; },
+    get sprint() {
+      // Desktop: hold Shift. Touch: push the joystick to its edge.
+      return keys.has("shift") || Math.hypot(joyX, joyZ) > 0.93;
+    },
     get aimX() { return aimX; },
     get aimY() { return aimY; },
     consumeSnap() {

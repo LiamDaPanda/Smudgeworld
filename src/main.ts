@@ -4,7 +4,10 @@ import { buildWorld, sampleGroundHeight, updateAtmosphere } from "./world.ts";
 import { createPlayer, updatePlayer } from "./player.ts";
 import { attachSmudges, createSmudges, updateSmudges } from "./smudges.ts";
 import { hideViewfinder } from "./camera.ts";
-import { addSnapshot, closeInventory, getSetSummary, openInventory, renderLibrary } from "./library.ts";
+import {
+  addSnapshot, closeInventory, getCapturedSubjects, getSetSummary,
+  openInventory, renderLibrary, restoreLibrary, serializeLibrary,
+} from "./library.ts";
 import { createFish, createPond, createWaterfall, updateFish, updatePond, updateWaterfall } from "./water.ts";
 import { isPhotoModeActive, startPhotoMode } from "./photo.ts";
 import type { GameState, Smudge } from "./types.ts";
@@ -68,6 +71,12 @@ const state: GameState = {
 
 const bounds = { minX: 1, maxX: worldWidth - 1, minZ: 1, maxZ: worldDepth - 1 };
 
+// ---------------- Save / load ----------------
+// Declared before the boot-time loadGame()/updateLevelHud() calls below —
+// function declarations hoist, but let-bindings do not.
+const SAVE_KEY = "smudgeworld-save-v1";
+let xp = 0;
+
 function updateHud(s: GameState) {
   const coin = document.getElementById("coin-val");
   const found = document.getElementById("found-val");
@@ -88,10 +97,49 @@ function updateProgress() {
   if (countEl) countEl.textContent = `${target.captured}/${target.total}`;
   if (fillEl) fillEl.style.width = `${(target.captured / target.total) * 100}%`;
 }
+loadGame();
 updateHud(state);
+updateLevelHud();
 renderLibrary();
 
-document.getElementById("inv-toggle")?.addEventListener("click", openInventory);
+// Paper grain + vignette overlay — generated once, sits above the canvas but
+// below all UI, with multiply blending so the whole scene reads as ink on
+// textured paper.
+(function addPaperOverlay() {
+  const c = document.createElement("canvas");
+  c.width = c.height = 160;
+  const ctx = c.getContext("2d")!;
+  const img = ctx.createImageData(160, 160);
+  for (let i = 0; i < img.data.length; i += 4) {
+    const v = 235 + Math.floor(Math.random() * 20);
+    img.data[i] = v; img.data[i + 1] = v; img.data[i + 2] = v - 4;
+    img.data[i + 3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+  const grain = document.createElement("div");
+  grain.id = "paper-overlay";
+  grain.style.cssText = `
+    position: fixed; inset: 0; z-index: 4; pointer-events: none;
+    background-image: url(${c.toDataURL()});
+    background-repeat: repeat;
+    mix-blend-mode: multiply;
+    opacity: 0.55;
+  `;
+  document.body.appendChild(grain);
+  const vignette = document.createElement("div");
+  vignette.id = "vignette-overlay";
+  vignette.style.cssText = `
+    position: fixed; inset: 0; z-index: 4; pointer-events: none;
+    background: radial-gradient(ellipse at center,
+      rgba(0,0,0,0) 55%, rgba(43,38,28,0.18) 100%);
+  `;
+  document.body.appendChild(vignette);
+})();
+
+document.getElementById("inv-toggle")?.addEventListener("click", () => {
+  document.getElementById("inv-toggle")?.classList.remove("has-new");
+  openInventory();
+});
 document.getElementById("inv-close")?.addEventListener("click", closeInventory);
 document.getElementById("inventory-modal")?.addEventListener("click", (e) => {
   if (e.target === e.currentTarget) closeInventory();
@@ -246,9 +294,63 @@ const CAM_LOOK_HEIGHT = 1.3;
 let cameraOrbit = 0;
 
 const idleInput = {
-  moveX: 0, moveZ: 0, cameraHeld: false, aimX: 0, aimY: 0,
+  moveX: 0, moveZ: 0, cameraHeld: false, sprint: false, aimX: 0, aimY: 0,
   consumeSnap: () => false, consumeCameraYaw: () => 0,
 };
+
+function saveGame() {
+  try {
+    const lib = serializeLibrary();
+    localStorage.setItem(SAVE_KEY, JSON.stringify({
+      coins: state.coins,
+      snapshotCount: state.snapshotCount,
+      xp,
+      library: lib,
+    }));
+  } catch { /* storage full or unavailable — play on without saving */ }
+}
+
+function loadGame() {
+  try {
+    const raw = localStorage.getItem(SAVE_KEY);
+    if (!raw) return;
+    const data = JSON.parse(raw);
+    state.coins = data.coins ?? 0;
+    state.snapshotCount = data.snapshotCount ?? 0;
+    xp = data.xp ?? 0;
+    restoreLibrary(data.library ?? null);
+    // Reflect captured subjects on the world's smudges
+    const captured = getCapturedSubjects();
+    for (const s of state.smudges) {
+      if (captured.has(s.name)) s.captured = true;
+    }
+  } catch { /* corrupt save — start fresh */ }
+}
+
+// Photographer level: every 100 XP is a level. XP comes from clarity.
+function levelFromXp(x: number) { return Math.floor(x / 100) + 1; }
+
+function updateLevelHud() {
+  const lvlEl = document.getElementById("level-val");
+  const fillEl = document.getElementById("xp-fill");
+  if (lvlEl) lvlEl.textContent = String(levelFromXp(xp));
+  if (fillEl) fillEl.style.width = `${xp % 100}%`;
+}
+
+// Floating "+N" that drifts up from the coin chip when coins are gained.
+function coinPop(amount: number) {
+  const chip = document.getElementById("coin");
+  if (!chip || amount <= 0) return;
+  const el = document.createElement("span");
+  el.className = "coin-pop";
+  el.textContent = `+${amount}`;
+  chip.appendChild(el);
+  setTimeout(() => el.remove(), 1100);
+}
+
+function markCollectionNew() {
+  document.getElementById("inv-toggle")?.classList.add("has-new");
+}
 
 // Proximity to smudges — updated each frame so the prompt tracks the nearest.
 const PROX_RADIUS = 3.5;
@@ -288,16 +390,25 @@ function launchPhotoIfPossible() {
     s.captured = true;
     const result = addSnapshot(shot);
     state.snapshotCount += 1;
-    state.coins += Math.round(shot.clarity * 10);
+    const coinGain = Math.round(shot.clarity * 10) + (result.completedSet ? result.reward : 0);
+    state.coins += coinGain;
+    const prevLevel = levelFromXp(xp);
+    xp += Math.round(shot.clarity * 20) + (result.newSubject ? 15 : 0);
     if (result.completedSet) {
-      state.coins += result.reward;
       showToast(`Set complete: ${result.completedSet.name} · +${result.reward} coins`, 3400);
     } else if (result.newSubject) {
       showToast(`New: ${shot.subjectName} · ${Math.round(shot.clarity * 100)}%`);
+      markCollectionNew();
     } else if (result.improvedBest) {
       showToast(`Better shot of ${shot.subjectName} · ${Math.round(shot.clarity * 100)}%`);
     }
+    if (levelFromXp(xp) > prevLevel) {
+      showToast(`Photographer level ${levelFromXp(xp)}!`, 3000);
+    }
+    coinPop(coinGain);
     updateHud(state);
+    updateLevelHud();
+    saveGame();
   });
 }
 
@@ -332,7 +443,7 @@ function update(dt: number) {
   updatePond(state.pond, state.time);
   updateFish(state.fish, state.time);
   updateWaterfall(state.waterfall, state.time);
-  updateAtmosphere(dt);
+  updateAtmosphere(dt, state.time);
   if (gameActive && !isPhotoModeActive()) updateProximity();
   else if (isPhotoModeActive()) {
     // hide prompt during photo mode
