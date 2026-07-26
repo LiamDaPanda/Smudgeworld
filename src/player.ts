@@ -184,6 +184,8 @@ export function createPlayer(startX: number, startZ: number): Player {
     worldX: startX,
     worldZ: startZ,
     yaw: 0,
+    velX: 0,
+    velZ: 0,
     walkPhase: 0,
     cameraRaised: false,
     leftArm,
@@ -231,39 +233,86 @@ function resolveCollisions(p: Player, colliders: { x: number; z: number; r: numb
   }
 }
 
+/** How fast velocity chases the input, in units of "fraction closed per second". */
+const ACCEL = 14;
+const DECEL = 18;
+
 export function updatePlayer(
   p: Player,
   input: InputState,
   dt: number,
   bounds: WorldBounds,
-  colliders: { x: number; z: number; r: number }[] = []
+  colliders: { x: number; z: number; r: number }[] = [],
+  /** Yaw the camera is looking along. Movement is relative to this. */
+  camYaw = 0
 ) {
-  p.cameraRaised = input.cameraHeld;
-  const canMove = !p.cameraRaised;
+  // Stick input, with a deadzone so a joystick resting slightly off-centre
+  // doesn't creep, and so the analog range starts from a true zero.
+  let ix = input.moveX;
+  let iz = input.moveZ;
+  const raw = Math.hypot(ix, iz);
+  const DEAD = 0.14;
+  let mag = 0;
+  if (raw > DEAD) {
+    mag = Math.min(1, (raw - DEAD) / (1 - DEAD));
+    ix /= raw;
+    iz /= raw;
+  } else {
+    ix = 0; iz = 0;
+  }
 
-  let mx = canMove ? input.moveX : 0;
-  let mz = canMove ? input.moveZ : 0;
-  const mag = Math.hypot(mx, mz);
-  if (mag > 1) { mx /= mag; mz /= mag; }
-  const moving = mag > 0.05;
-  const speed = input.sprint ? SPRINT_SPEED : WALK_SPEED;
+  // Movement is relative to the camera, not to the world axes. Before this,
+  // W always walked toward -Z no matter where the camera was pointing, so
+  // after orbiting the view even slightly, every key sent you somewhere other
+  // than the direction it was pressed — and because the camera sat behind the
+  // player's facing, each turn whipped the whole view around.
+  const fx = -Math.sin(camYaw);
+  const fz = -Math.cos(camYaw);
+  const rx = -fz;
+  const rz = fx;
+  // iz is -1 for forward, so forward contribution is -iz.
+  const dirX = fx * -iz + rx * ix;
+  const dirZ = fz * -iz + rz * ix;
 
-  if (moving) {
-    p.worldX += mx * speed * dt;
-    p.worldZ += mz * speed * dt;
+  // Speed rises with how far the stick is pushed; shift (or a stick at the
+  // rim) tops out at a run.
+  const speed = input.sprint
+    ? SPRINT_SPEED
+    : WALK_SPEED * (0.45 + 0.55 * mag);
+  const targetVX = dirX * speed * mag;
+  const targetVZ = dirZ * speed * mag;
+
+  // Ease velocity toward the target rather than snapping. Stopping is a shade
+  // quicker than starting, which reads as deliberate rather than sluggish.
+  const rate = mag > 0 ? ACCEL : DECEL;
+  const k = 1 - Math.exp(-rate * dt);
+  p.velX += (targetVX - p.velX) * k;
+  p.velZ += (targetVZ - p.velZ) * k;
+  if (Math.hypot(p.velX, p.velZ) < 0.02) { p.velX = 0; p.velZ = 0; }
+
+  const movingNow = p.velX !== 0 || p.velZ !== 0;
+  if (movingNow) {
+    p.worldX += p.velX * dt;
+    p.worldZ += p.velZ * dt;
     p.worldX = Math.max(bounds.minX, Math.min(bounds.maxX, p.worldX));
     p.worldZ = Math.max(bounds.minZ, Math.min(bounds.maxZ, p.worldZ));
     resolveCollisions(p, colliders);
     p.worldX = Math.max(bounds.minX, Math.min(bounds.maxX, p.worldX));
     p.worldZ = Math.max(bounds.minZ, Math.min(bounds.maxZ, p.worldZ));
-
-    const targetYaw = Math.atan2(mx, mz) + Math.PI;
-    let diff = ((targetYaw - p.yaw + Math.PI) % (Math.PI * 2)) - Math.PI;
-    if (diff < -Math.PI) diff += Math.PI * 2;
-    p.yaw += diff * Math.min(1, dt * 12);
   }
 
-  p.walkPhase += (moving ? speed : 0) * dt * 2.2;
+  // Face the way you're actually travelling. Turn rate scales a little with
+  // speed so a walking turn is soft and a sprinting one is snappy.
+  if (mag > 0) {
+    const targetYaw = Math.atan2(dirX, dirZ) + Math.PI;
+    let diff = ((targetYaw - p.yaw + Math.PI) % (Math.PI * 2)) - Math.PI;
+    if (diff < -Math.PI) diff += Math.PI * 2;
+    p.yaw += diff * Math.min(1, dt * (9 + 6 * mag));
+  }
+
+  const gait = Math.hypot(p.velX, p.velZ);
+  const moving = gait > 0.05;
+  p.walkPhase += gait * dt * 2.2;
 
   p.root.position.set(p.worldX, 0, p.worldZ);
   p.root.rotation.y = p.yaw;

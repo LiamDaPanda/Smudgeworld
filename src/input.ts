@@ -2,10 +2,9 @@ import type { InputState } from "./types.ts";
 
 export function createInput(canvas: HTMLCanvasElement): InputState {
   const keys = new Set<string>();
-  let snapPending = false;
   let aimX = window.innerWidth / 2;
   let aimY = window.innerHeight / 2;
-  let touchCam = false;
+  let photoPending = false;
   let joyX = 0;
   let joyZ = 0;
 
@@ -13,7 +12,7 @@ export function createInput(canvas: HTMLCanvasElement): InputState {
   if (isTouch) {
     document.body.classList.add("touch");
     const hint = document.getElementById("hint");
-    if (hint) hint.textContent = "Joystick to walk · hold the camera to raise · drag to aim · SNAP to shoot";
+    if (hint) hint.textContent = "Joystick to walk · drag the right of the screen to look · camera button to photograph";
     const lockLandscape = () => {
       const anyScreen = screen as unknown as { orientation?: { lock?: (o: string) => Promise<void> } };
       anyScreen.orientation?.lock?.("landscape").catch(() => {});
@@ -26,8 +25,10 @@ export function createInput(canvas: HTMLCanvasElement): InputState {
 
   window.addEventListener("keydown", (e) => {
     keys.add(e.key.toLowerCase());
+    // Space is a second way to raise the camera, so you never have to take a
+    // hand off the movement keys to reach E.
     if (e.key === " " || e.code === "Space") {
-      snapPending = true;
+      photoPending = true;
       e.preventDefault();
     }
   });
@@ -52,7 +53,9 @@ export function createInput(canvas: HTMLCanvasElement): InputState {
       rightLastX = e.clientX;
       e.preventDefault();
     } else {
-      snapPending = true;
+      // Left-click on the world is a third way to raise the camera, for
+      // players who never take their hand off the mouse.
+      photoPending = true;
     }
   });
   window.addEventListener("mouseup", (e) => {
@@ -166,37 +169,22 @@ export function createInput(canvas: HTMLCanvasElement): InputState {
     joystick.addEventListener("lostpointercapture", () => reset());
   }
 
+  // The big round button is now a tap-to-photograph, not a hold-to-raise. The
+  // old behaviour froze the player in place for as long as it was held and
+  // then handed off to a separate SNAP button, so on a phone the only way to
+  // take a picture was to stop walking and juggle two controls. Photo mode has
+  // its own shutter, so all this has to do is open it.
   const camEl = document.getElementById("cam-btn");
   if (camEl) {
-    const on = (e: Event) => {
-      touchCam = true;
+    camEl.addEventListener("pointerdown", (e) => {
+      photoPending = true;
       camEl.classList.add("active");
-      document.body.classList.add("cam-raised");
-      e.preventDefault();
-    };
-    const off = (e: Event) => {
-      touchCam = false;
-      camEl.classList.remove("active");
-      document.body.classList.remove("cam-raised");
-      e.preventDefault();
-    };
-    camEl.addEventListener("pointerdown", on);
-    camEl.addEventListener("pointerup", off);
-    camEl.addEventListener("pointercancel", off);
-    camEl.addEventListener("pointerleave", off);
-  }
-
-  const shutter = document.getElementById("shutter-btn");
-  if (shutter) {
-    shutter.addEventListener("pointerdown", (e) => {
-      snapPending = true;
-      shutter.classList.add("active");
       e.preventDefault();
     });
-    const clear = () => shutter.classList.remove("active");
-    shutter.addEventListener("pointerup", clear);
-    shutter.addEventListener("pointercancel", clear);
-    shutter.addEventListener("pointerleave", clear);
+    const clear = () => camEl.classList.remove("active");
+    camEl.addEventListener("pointerup", clear);
+    camEl.addEventListener("pointercancel", clear);
+    camEl.addEventListener("pointerleave", clear);
   }
 
   return {
@@ -212,17 +200,16 @@ export function createInput(canvas: HTMLCanvasElement): InputState {
       if (keys.has("s") || keys.has("arrowdown")) z += 1;
       return Math.max(-1, Math.min(1, z));
     },
-    get cameraHeld() { return touchCam; },
+    consumePhoto() {
+      if (photoPending) { photoPending = false; return true; }
+      return false;
+    },
     get sprint() {
       // Desktop: hold Shift. Touch: push the joystick to its edge.
       return keys.has("shift") || Math.hypot(joyX, joyZ) > 0.93;
     },
     get aimX() { return aimX; },
     get aimY() { return aimY; },
-    consumeSnap() {
-      if (snapPending) { snapPending = false; return true; }
-      return false;
-    },
     consumeCameraYaw() {
       const y = pendingCameraYaw;
       pendingCameraYaw = 0;
