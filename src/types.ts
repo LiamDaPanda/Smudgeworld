@@ -4,11 +4,11 @@ import type { Fish, Pond, Waterfall } from "./water.ts";
 export interface InputState {
   moveX: number; // -1 (left/west) to +1 (right/east)
   moveZ: number; // -1 (forward/into scene) to +1 (backward/toward camera)
-  cameraHeld: boolean;
+  /** True once for each request to raise the camera (E, Space, or the button). */
+  consumePhoto(): boolean;
   sprint: boolean;
   aimX: number;
   aimY: number;
-  consumeSnap: () => boolean;
   // Camera orbit — accumulates drag delta from right-mouse or right-half touch.
   consumeCameraYaw: () => number;
 }
@@ -18,6 +18,9 @@ export interface Player {
   worldX: number;
   worldZ: number;
   yaw: number; // radians; 0 = facing +X, PI/2 = facing +Z
+  /** Current planar velocity, so starting and stopping have some weight. */
+  velX: number;
+  velZ: number;
   walkPhase: number;
   cameraRaised: boolean;
   leftLeg: Group;

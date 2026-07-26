@@ -36,10 +36,18 @@
         left: calc(16px + var(--safe-l));
         right: calc(16px + var(--safe-r));
         display: flex; justify-content: space-between; align-items: flex-start;
+        gap: 12px;
         pointer-events: none; color: #2b2b2b; font-size: 14px; letter-spacing: 0.02em;
       }
-      #hud .right { text-align: right; }
-      #hud .hint { opacity: 0.55; font-style: italic; }
+      /* The title block has to be allowed to shrink. As a flex item at its
+         natural width it pushed the whole right-hand column past the edge of
+         the screen, which is why the progress bar and buttons were clipped. */
+      #hud .left { flex: 1 1 auto; min-width: 0; }
+      #hud .right { text-align: right; flex: 0 0 auto; max-width: 50vw; }
+      #hud .hint {
+        opacity: 0.55; font-style: italic;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      }
       #library {
         position: fixed;
         bottom: calc(12px + var(--safe-b));
@@ -60,7 +68,11 @@
       #touch-controls { display: none; }
       body.touch #touch-controls { display: block; }
       body.touch #game { cursor: default; }
-      body.touch #library { bottom: calc(180px + var(--safe-b)); }
+      body.touch #library {
+        bottom: calc(12px + var(--safe-b));
+        left: calc(190px + var(--safe-l));
+        right: calc(120px + var(--safe-r));
+      }
 
       .tbtn {
         position: fixed;
@@ -77,13 +89,19 @@
       }
       .tbtn.active { background: rgba(43, 43, 43, 0.85); color: #f4efe6; transform: scale(0.94); }
 
-      #cam-btn { right: calc(24px + var(--safe-r)); bottom: calc(48px + var(--safe-b)); }
-      #cam-btn svg { width: 32px; height: 32px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linejoin: round; }
-      #shutter-btn {
-        right: calc(120px + var(--safe-r)); bottom: calc(60px + var(--safe-b));
-        width: 60px; height: 60px; font-size: 13px; display: none;
+      #cam-btn {
+        right: calc(24px + var(--safe-r)); bottom: calc(48px + var(--safe-b));
+        opacity: 0.45;
+        transition: opacity 140ms ease, transform 60ms ease, background 60ms ease;
       }
-      body.touch.cam-raised #shutter-btn { display: flex; }
+      /* Lit only when there's actually something to photograph, so the button
+         states what it will do before you press it. */
+      body.near-smudge #cam-btn {
+        opacity: 1;
+        background: rgba(255, 255, 255, 0.92);
+        box-shadow: 2px 2px 0 rgba(43, 43, 43, 0.5), 0 0 0 3px rgba(43, 43, 43, 0.16);
+      }
+      #cam-btn svg { width: 32px; height: 32px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linejoin: round; }
 
       /* Virtual joystick — Roblox-style */
       #joystick {
@@ -287,7 +305,7 @@
 
       /* Proximity prompt when near a smudge */
       #prox-prompt {
-        position: fixed; left: 50%; bottom: calc(120px + var(--safe-b));
+        position: fixed; left: 50%; bottom: calc(88px + var(--safe-b));
         transform: translateX(-50%);
         background: rgba(30, 25, 20, 0.9);
         color: #f4efe6;
@@ -433,6 +451,21 @@
         background: #2b2b2b; color: #f4efe6;
       }
 
+      /* Landscape phones are barely 350px tall and the right-hand column is
+         seven stacked items — at full size it runs into the touch controls. */
+      @media (max-height: 460px) {
+        #hud { font-size: 12px; }
+        #hud .hud-chip { padding: 2px 7px; font-size: 11px; }
+        #hud .right { gap: 2px; }
+        #xp-bar { display: none; }
+        #hud .right button { padding: 2px 8px; font-size: 11px; }
+        #progress-bar { font-size: 10px; }
+      }
+      /* Narrow portrait: drop the strapline so the chips keep their room. */
+      @media (max-width: 560px) {
+        #hud .hint { display: none; }
+      }
+
       /* HUD polish */
       #hud .right { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
       .hud-chip {
@@ -446,7 +479,7 @@
       .hud-chip svg { width: 12px; height: 12px; fill: currentColor; }
       #progress-bar {
         pointer-events: none;
-        width: 220px;
+        width: min(220px, 38vw);
         color: #2b2b2b;
         font-size: 11px; font-style: italic;
       }
@@ -460,7 +493,7 @@
         transition: width 320ms ease;
       }
       #xp-bar {
-        width: 120px; height: 4px;
+        width: min(120px, 30vw); height: 4px;
         border: 1px solid rgba(43,43,43,0.5);
         background: rgba(255,255,255,0.4);
         pointer-events: none;
@@ -663,7 +696,15 @@
         max-width: 78vw; text-align: center;
       }
       #tip-toast.show { opacity: 1; }
-      body.touch #tip-toast { bottom: calc(150px + var(--safe-b)); }
+      body.touch #tip-toast { bottom: calc(140px + var(--safe-b)); }
+      /* Short landscape: the prompt, the tip and the snapshot strip all live
+         in the bottom band, and at full spacing they stack into each other. */
+      @media (max-height: 460px) {
+        #prox-prompt { bottom: calc(58px + var(--safe-b)); padding: 6px 14px; font-size: 12px; }
+        #tip-toast { bottom: calc(104px + var(--safe-b)); padding: 6px 14px; font-size: 12px; }
+        body.touch #tip-toast { bottom: calc(104px + var(--safe-b)); }
+        .snapshot { width: 76px; height: 58px; }
+      }
 
       /* Gear shop — reuses the Collection panel chrome */
       #shop-modal {
@@ -785,9 +826,9 @@
   <body>
     <canvas id="game"></canvas>
     <div id="hud">
-      <div>
+      <div class="left">
         <div>Smudgeworld</div>
-        <div class="hint" id="hint">W A S D to walk · right-drag to orbit camera · approach a smudge to photograph it</div>
+        <div class="hint" id="hint">W A S D to walk · right-drag to look · E or Space to photograph what you're near</div>
       </div>
       <div class="right">
         <div class="hud-chip" id="coin">
@@ -821,7 +862,7 @@
       <span class="prox-icon" aria-hidden="true">◑</span>
       <span id="prox-name">A blurry figure</span>
       <span class="desktop-only"><span class="key">E</span> photograph</span>
-      <button class="touch-only" id="prox-btn">Photograph</button>
+      <span class="touch-only">camera button to photograph</span>
     </div>
     <div id="library"></div>
     <div id="inventory-modal" role="dialog" aria-modal="true" aria-label="Collection">
@@ -904,7 +945,7 @@
         <div class="base"></div>
         <div class="knob" id="joystick-knob"></div>
       </div>
-      <div class="tbtn" id="cam-btn" aria-label="Raise camera">
+      <div class="tbtn" id="cam-btn" aria-label="Photograph">
         <svg viewBox="0 0 32 32" aria-hidden="true">
           <rect x="3" y="9" width="26" height="18" rx="2"/>
           <path d="M11 9 L13 5 L19 5 L21 9"/>
@@ -912,7 +953,6 @@
           <circle cx="16" cy="18" r="2"/>
         </svg>
       </div>
-      <div class="tbtn" id="shutter-btn">SNAP</div>
     </div>
     <div id="pause-overlay" role="dialog" aria-modal="true" aria-label="Paused">
       <div class="pause-panel">
@@ -924,7 +964,7 @@
             <dt>Walk</dt><dd><span class="k">W</span><span class="k">A</span><span class="k">S</span><span class="k">D</span> or the joystick</dd>
             <dt>Sprint</dt><dd><span class="k">Shift</span> or push the joystick to its edge</dd>
             <dt>Look</dt><dd>Right-drag, or drag the right half of the screen</dd>
-            <dt>Photograph</dt><dd>Walk up to a smudge, then <span class="k">E</span></dd>
+            <dt>Photograph</dt><dd>Get near a smudge, then <span class="k">E</span>, <span class="k">Space</span>, or the camera button — no need to stop walking</dd>
             <dt>Shutter</dt><dd>Fire when the focus ring is at its tightest</dd>
             <dt>Collection</dt><dd><span class="k">I</span></dd>
           </dl>

@@ -215,8 +215,16 @@ export function attachSmudges(smudges: Smudge[], worldRoot: Group) {
 const capturedColor = new Color("#4a7048");
 const activeColor = new Color("#4a463d");
 
-export function updateSmudges(smudges: Smudge[], time: number, night = 0) {
+export function updateSmudges(
+  smudges: Smudge[], time: number, night = 0,
+  /** Subject currently being photographed — it holds still until you are done. */
+  held: Smudge | null = null
+) {
   for (const s of smudges) {
+    // A subject that drifts while its photo overlay is open is one you
+    // come back to find somewhere else, and the framing you lined up is
+    // gone. Whatever you are shooting stays put.
+    if (s === held) continue;
     if (s.kind === "timed") {
       // "After Dark" subjects only exist at night, and even then they blink
       // in and out on a short cycle — you have to be there at the right hour

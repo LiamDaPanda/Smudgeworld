@@ -477,12 +477,19 @@ function showToast(msg: string, ms = 2600) {
 const CAM_DISTANCE = 6.5;
 const CAM_HEIGHT = 3.4;
 const CAM_LOOK_HEIGHT = 1.3;
-// User-controlled additional yaw offset for the camera around the player.
-let cameraOrbit = 0;
+// The camera's own heading. This used to be an offset added to the player's
+// facing, which meant every turn dragged the whole view around with it and
+// left the controls pointing somewhere new. The camera now owns its heading:
+// the player orbits it directly, and it only drifts on its own to fall in
+// behind a player who has been running the same way for a moment.
+let camYaw = 0;
+/** Seconds since the player last dragged the view; suppresses the auto-trail. */
+let sinceOrbit = 99;
 
 const idleInput = {
-  moveX: 0, moveZ: 0, cameraHeld: false, sprint: false, aimX: 0, aimY: 0,
-  consumeSnap: () => false, consumeCameraYaw: () => 0,
+  moveX: 0, moveZ: 0, sprint: false, aimX: 0, aimY: 0,
+  consumePhoto: () => false,
+  consumeCameraYaw: () => 0,
 };
 
 function saveGame() {
@@ -585,7 +592,7 @@ function updateOnboarding(dt: number) {
   }
   if (nearestSmudge) {
     showTip("photograph", document.body.classList.contains("touch")
-      ? "Tap Photograph to raise your camera."
+      ? "Tap the camera button to raise your camera."
       : "Press E to raise your camera.");
   }
 }
@@ -606,17 +613,24 @@ function updateClockHud() {
 // The radius comes from gear, so a Wide Lens really does let you spot things
 // from further away.
 let nearestSmudge: Smudge | null = null;
+let lastChimed: Smudge | null = null;
 
 function updateProximity() {
   const p = state.player;
   let best: Smudge | null = null;
-  let bestDist = spotRadius();
+  // Hysteresis: you have to get inside the spot radius to acquire a subject,
+  // but you keep it until you're a good way back outside. Without this the
+  // prompt strobes on and off as you walk the boundary — and worse, the
+  // subject you were about to photograph goes null between seeing the prompt
+  // and pressing the key.
+  const acquire = spotRadius();
+  const hold = acquire * 1.35;
+  let bestDist = Infinity;
   for (const s of state.smudges) {
     if (!s.visible) continue;
-    const dx = s.worldPos.x - p.worldX;
-    const dz = s.worldPos.z - p.worldZ;
-    const d = Math.hypot(dx, dz);
-    if (d < bestDist) { best = s; bestDist = d; }
+    const d = Math.hypot(s.worldPos.x - p.worldX, s.worldPos.z - p.worldZ);
+    const limit = s === nearestSmudge ? hold : acquire;
+    if (d < limit && d < bestDist) { best = s; bestDist = d; }
   }
   const changed = best !== nearestSmudge;
   nearestSmudge = best;
@@ -626,11 +640,19 @@ function updateProximity() {
     if (best && !isPhotoModeActive()) {
       prompt?.classList.add("show");
       if (promptName) promptName.textContent = "A blurry figure";
-      playNearby();
+      // Only chime for a subject you weren't already standing next to —
+      // walking the boundary of two overlapping subjects used to retrigger it
+      // every few frames.
+      if (best !== lastChimed) {
+        lastChimed = best;
+        playNearby();
+      }
     } else {
       prompt?.classList.remove("show");
     }
   }
+  if (!best) lastChimed = null;
+  document.body.classList.toggle("near-smudge", !!best);
 }
 
 function launchPhotoIfPossible() {
@@ -681,7 +703,6 @@ function launchPhotoIfPossible() {
   });
 }
 
-document.getElementById("prox-btn")?.addEventListener("click", launchPhotoIfPossible);
 
 // Debug hook — surface state for playwright screenshots
 (window as unknown as { __sw?: unknown }).__sw = {
@@ -705,6 +726,9 @@ document.getElementById("prox-btn")?.addEventListener("click", launchPhotoIfPoss
   }),
   addCoins: (n: number) => { state.coins += n; updateHud(state); renderShop(); },
   scene: () => scene,
+  pose: () => ({ x: state.player.worldX, z: state.player.worldZ, yaw: state.player.yaw, camYaw }),
+  subjectPos: () => nearestSmudge && { x: nearestSmudge.worldPos.x, z: nearestSmudge.worldPos.z },
+  setCamYaw: (y: number) => { camYaw = y; sinceOrbit = 0; },
   boom: () => Math.hypot(
     camera.position.x - state.player.worldX,
     camera.position.z - state.player.worldZ
@@ -724,20 +748,49 @@ function update(dt: number) {
   // Pausing halts world time entirely — the clock, wandering smudges, and
   // drifting clouds all hold still until you resume.
   if (paused || readingLetter) {
-    state.input.consumeSnap();
+    state.input.consumePhoto();
     state.input.consumeCameraYaw();
     return;
   }
   state.time += dt;
+
+  // Camera heading is settled before the player moves, so a drag steers the
+  // very next step rather than the one after it.
+  {
+    const orbit = state.input.consumeCameraYaw();
+    if (Math.abs(orbit) > 0.0001) {
+      camYaw += orbit;
+      sinceOrbit = 0;
+    } else {
+      sinceOrbit += dt;
+    }
+    // Auto-trail: once the player has left the view alone for a beat, and is
+    // running broadly the way the camera is already pointing, it eases in
+    // behind them. Gated on "broadly forward" on purpose — trailing a strafe
+    // rotates the view out from under the player, so holding A would slowly
+    // turn A into forward, which is the same disorientation the old
+    // player-locked camera had.
+    const gait = Math.hypot(state.player.velX, state.player.velZ);
+    if (sinceOrbit > 1.2 && gait > 0.5) {
+      const forwardness =
+        (state.player.velX * -Math.sin(camYaw) + state.player.velZ * -Math.cos(camYaw)) / gait;
+      if (forwardness > 0.55) {
+        let diff = ((state.player.yaw - camYaw + Math.PI) % (Math.PI * 2)) - Math.PI;
+        if (diff < -Math.PI) diff += Math.PI * 2;
+        camYaw += diff * Math.min(1, dt * 0.8);
+      }
+    }
+  }
+
   // While the menu/cutscene is up or photo mode is active, freeze the player.
   const input = gameActive && !isPhotoModeActive() ? state.input : idleInput;
-  updatePlayer(state.player, input, dt, bounds, world.colliders);
+  updatePlayer(state.player, input, dt, bounds, world.colliders, camYaw);
   // Follow terrain height (currently returns 0; kept for future terrain work)
   const y = sampleGroundHeight(state.player.worldX, state.player.worldZ);
   if (state.player.root.position.y !== y) state.player.root.position.y = y;
   updateDayNight(dt, world, state.worldWidth, state.worldDepth);
   const night = nightAmount();
-  updateSmudges(state.smudges, state.time, night);
+  updateSmudges(state.smudges, state.time, night, isPhotoModeActive() ? nearestSmudge : null);
   updatePond(state.pond, state.time);
   updateFish(state.fish, state.time);
   updateWaterfall(state.waterfall, state.time);
@@ -758,17 +811,18 @@ function update(dt: number) {
   const strideHz = state.input.sprint ? 3.1 : 2.0;
   updateAudio(dt, { waterDistance: Math.max(0, pondDist), walking: isWalking, strideHz, night });
   updateFootsteps(dt, isWalking, strideHz);
-  if (gameActive && !isPhotoModeActive()) updateProximity();
+  if (gameActive && !isPhotoModeActive()) {
+    updateProximity();
+    // Checked every frame, so raising the camera works mid-stride — you never
+    // have to come to a stop first.
+    if (state.input.consumePhoto()) launchPhotoIfPossible();
+  }
   else if (isPhotoModeActive()) {
     // hide prompt during photo mode
     document.getElementById("prox-prompt")?.classList.remove("show");
   }
 
   const p = state.player;
-  cameraOrbit += state.input.consumeCameraYaw();
-  // Camera sits behind the player, plus the user's orbit offset. This lets
-  // the player rotate the view around themselves.
-  const camYaw = p.yaw + cameraOrbit;
   const forwardX = -Math.sin(camYaw);
   const forwardZ = -Math.cos(camYaw);
 
@@ -809,8 +863,9 @@ function update(dt: number) {
   // Old snap-with-viewfinder flow is gone in favor of the proximity/photo-mode
   // flow. Hide the DOM viewfinder in case anything else toggled it.
   hideViewfinder();
-  // Consume any pending snap so it doesn't linger between modes.
-  state.input.consumeSnap();
+  // Drop any photo request that arrived with no subject in range, so it can't
+  // fire the instant you walk up to the next one.
+  state.input.consumePhoto();
 }
 
 
