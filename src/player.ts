@@ -1,10 +1,7 @@
 import {
-  BoxGeometry,
   CanvasTexture,
   SRGBColorSpace,
-  CapsuleGeometry,
   Color,
-  CylinderGeometry,
   EdgesGeometry,
   Group,
   LineBasicMaterial,
@@ -12,8 +9,8 @@ import {
   Mesh,
   MeshBasicMaterial,
   PlaneGeometry,
-  SphereGeometry,
 } from "three";
+import { extrude, lathe, MeshBuilder, resample, tube } from "./modeling.ts";
 import type { InputState, Player } from "./types.ts";
 
 const INK = new Color("#1a1a1a");
@@ -21,111 +18,170 @@ const CAMERA_TAN = new Color("#8b6b45");
 const WALK_SPEED = 4.6;
 const SPRINT_SPEED = 7.4;
 
-const HEAD_R = 0.19;
-const HEAD_Y = 1.66;
+const HEAD_R = 0.155;
+const HEAD_Y = 1.62;
 const SHOULDER_Y = 1.36;
 const HIP_Y = 0.92;
 const LIMB_LEN = 0.5;
-const LIMB_R = 0.055;
 
-// A dark capsule limb built inside a Group so rotating the group swings the
-// whole limb around the shoulder/hip joint at the group's origin.
-function makeLimb(): Group {
+// The figure is built from authored geometry rather than Three's primitives.
+// A sphere on capsules is a snowman, and next to trees that now have root
+// flare and forked boughs it was the crudest thing on screen — and it's the
+// one object that's on screen the whole time.
+
+function solid(mb: MeshBuilder, color: Color, threshold = 40, inkOpacity = 0.85): Group {
   const g = new Group();
-  const geo = new CapsuleGeometry(LIMB_R, LIMB_LEN, 3, 8);
-  const mesh = new Mesh(geo, new MeshBasicMaterial({ color: INK }));
-  mesh.position.y = -LIMB_LEN / 2 - LIMB_R;
-  g.add(mesh);
+  const geo = mb.geometry();
+  g.add(new Mesh(geo, new MeshBasicMaterial({ color })));
+  g.add(new LineSegments(
+    new EdgesGeometry(geo, threshold),
+    new LineBasicMaterial({ color: INK, transparent: true, opacity: inkOpacity })
+  ));
+  return g;
+}
+
+/**
+ * A limb: tapered from joint to end, with a slight bend, and a rounded cap.
+ * Capsules are uniform tubes — a tapered one reads as an arm.
+ */
+function makeLimb(thickTop: number, thickEnd: number, length: number): Group {
+  const g = new Group();
+  const spine = resample([
+    [0, 0, 0],
+    [0, -length * 0.5, length * 0.03],
+    [0, -length, 0],
+  ], 6);
+  const mb = tube(spine, (t) => thickTop + (thickEnd - thickTop) * t, {
+    sides: 6, capStart: true, capEnd: true,
+  });
+  g.add(solid(mb, INK, 52, 0.5));
   return g;
 }
 
 function makeCamera(): Group {
   const g = new Group();
-  const w = 0.22, h = 0.14, d = 0.11;
-  const body = new Mesh(new BoxGeometry(w, h, d), new MeshBasicMaterial({ color: CAMERA_TAN }));
-  g.add(body);
-  const edges = new EdgesGeometry(body.geometry, 30);
-  g.add(new LineSegments(edges, new LineBasicMaterial({ color: INK })));
+  const w = 0.23, h = 0.15, d = 0.12;
+  // The body is an extruded outline with clipped top corners, which is what
+  // makes it read as a camera rather than as a die.
+  const body = extrude([
+    [-w / 2, -h / 2], [w / 2, -h / 2],
+    [w / 2, h * 0.22], [w * 0.34, h / 2],
+    [-w * 0.34, h / 2], [-w / 2, h * 0.22],
+  ], d, 0.9);
+  g.add(solid(body, CAMERA_TAN, 24));
 
-  const lensR = 0.045;
-  const lensBody = new Mesh(new CylinderGeometry(lensR, lensR, 0.04, 20), new MeshBasicMaterial({ color: INK }));
-  lensBody.rotation.x = Math.PI / 2;
-  lensBody.position.set(0, 0, d / 2 + 0.02);
-  g.add(lensBody);
+  // Lens: two stacked barrels, so it has a rim rather than being one stub.
+  const lens = lathe([
+    [0.052, 0], [0.052, 0.03], [0.044, 0.032],
+    [0.044, 0.055], [0.036, 0.058], [0, 0.058],
+  ], 12);
+  const lensG = solid(lens, INK, 30, 0.6);
+  lensG.rotation.x = -Math.PI / 2;
+  lensG.position.z = d / 2;
+  g.add(lensG);
 
-  // Little viewfinder bump on top
-  const vf = new Mesh(new BoxGeometry(0.06, 0.04, 0.06), new MeshBasicMaterial({ color: CAMERA_TAN }));
-  vf.position.set(-w * 0.25, h / 2 + 0.02, 0);
-  g.add(vf);
-  const vfEdges = new EdgesGeometry(vf.geometry, 30);
-  const vfLines = new LineSegments(vfEdges, new LineBasicMaterial({ color: INK }));
-  vfLines.position.copy(vf.position);
-  g.add(vfLines);
+  const vf = extrude([[-0.03, -0.02], [0.03, -0.02], [0.03, 0.02], [-0.03, 0.02]], 0.06, 0.85);
+  const vfG = solid(vf, CAMERA_TAN, 24);
+  vfG.position.set(-w * 0.26, h / 2 + 0.018, 0);
+  g.add(vfG);
 
-  // Shutter button
-  const shutter = new Mesh(new CylinderGeometry(0.015, 0.015, 0.02, 8), new MeshBasicMaterial({ color: new Color("#3a2a1a") }));
-  shutter.position.set(w * 0.35, h / 2 + 0.012, 0);
-  g.add(shutter);
+  const winder = lathe([[0.018, 0], [0.018, 0.016], [0.012, 0.02], [0, 0.02]], 8);
+  const wG = solid(winder, new Color("#3a2a1a"), 30, 0.6);
+  wG.position.set(w * 0.34, h / 2, 0);
+  g.add(wG);
   return g;
 }
 
-// Head — a small sphere with a hat cone on top. Facing direction is the local
-// +Z so it turns with the player's yaw.
+/** Head: an egg, not a ball — narrower at the jaw, with a hat that has a dent. */
 function makeHead(): Group {
   const g = new Group();
-  const head = new Mesh(new SphereGeometry(HEAD_R, 16, 12), new MeshBasicMaterial({ color: new Color("#f0e6d2") }));
+  const r = HEAD_R;
+  const skull = lathe([
+    [0, -r * 0.95],
+    [r * 0.55, -r * 0.78],
+    [r * 0.85, -r * 0.36],
+    [r * 1.0, r * 0.04],
+    [r * 0.9, r * 0.44],
+    [r * 0.58, r * 0.74],
+    [0, r * 0.88],
+  ], 9, (row, k) => 1 + Math.sin(k * 1.7 + row) * 0.03);
+  const head = solid(skull, new Color("#efe4cf"), 46, 0.45);
   head.position.y = HEAD_Y;
   g.add(head);
-  const headEdges = new EdgesGeometry(head.geometry, 25);
-  const headLines = new LineSegments(headEdges, new LineBasicMaterial({ color: INK, transparent: true, opacity: 0.6 }));
-  headLines.position.y = HEAD_Y;
-  g.add(headLines);
 
-  // Hat: brim disc sits at the top of the head, crown cylinder rises above it.
-  const brimY = HEAD_Y + HEAD_R * 0.55;
-  const brim = new Mesh(new CylinderGeometry(HEAD_R * 1.35, HEAD_R * 1.35, 0.02, 20), new MeshBasicMaterial({ color: new Color("#2f4a2f") }));
-  brim.position.y = brimY;
-  g.add(brim);
-  const brimEdges = new EdgesGeometry(brim.geometry, 25);
-  const brimLines = new LineSegments(brimEdges, new LineBasicMaterial({ color: INK }));
-  brimLines.position.y = brimY;
-  g.add(brimLines);
+  // Hat: a brim that dips at the front and a crown pinched in at the top.
+  const brimY = HEAD_Y + r * 0.46;
+  const brim = lathe([
+    [0, 0.014], [r * 0.85, 0.013], [r * 1.22, -0.004], [r * 1.28, -0.016], [r * 0.85, -0.017], [0, -0.015],
+  ], 14);
+  const brimG = solid(brim, new Color("#2c4630"), 34, 0.8);
+  brimG.position.y = brimY;
+  brimG.rotation.z = 0.05; // sits at a slight angle
+  g.add(brimG);
 
-  const crownH = 0.18;
-  const hat = new Mesh(new CylinderGeometry(HEAD_R * 0.75, HEAD_R * 1.0, crownH, 14), new MeshBasicMaterial({ color: new Color("#3a5a3a") }));
-  hat.position.y = brimY + 0.01 + crownH / 2;
-  g.add(hat);
-  const hatEdges = new EdgesGeometry(hat.geometry, 25);
-  const hatLines = new LineSegments(hatEdges, new LineBasicMaterial({ color: INK }));
-  hatLines.position.copy(hat.position);
-  g.add(hatLines);
+  // Low and slightly domed. The first pass had a tall pinched crown, which at
+  // this scale read as a cooking pot balanced on the head rather than a hat.
+  const crown = lathe([
+    [r * 0.98, 0],
+    [r * 0.95, 0.05],
+    [r * 0.87, 0.085],
+    [r * 0.66, 0.105],
+    [0, 0.115],
+  ], 12);
+  const crownG = solid(crown, new Color("#38553a"), 34, 0.8);
+  crownG.position.y = brimY + 0.008;
+  crownG.rotation.z = 0.05;
+  g.add(crownG);
   return g;
 }
 
+/** Torso: shoulders wider than the waist, flattened front to back. */
 function makeTorso(): Group {
   const g = new Group();
-  // Slim shirt from shoulders to hips
-  const torso = new Mesh(
-    new CapsuleGeometry(0.14, HIP_Y * 0 + (SHOULDER_Y - HIP_Y) * 0.75, 3, 8),
-    new MeshBasicMaterial({ color: new Color("#c2b48a") })
-  );
-  torso.position.y = (SHOULDER_Y + HIP_Y) / 2;
-  torso.scale.set(1.05, 1, 0.65);
-  g.add(torso);
-  const edges = new EdgesGeometry(torso.geometry, 25);
-  const lines = new LineSegments(edges, new LineBasicMaterial({ color: INK, transparent: true, opacity: 0.75 }));
-  lines.position.copy(torso.position);
-  lines.scale.copy(torso.scale);
-  g.add(lines);
+  const spine = resample([
+    [0, HIP_Y - 0.06, 0],
+    [0, (HIP_Y + SHOULDER_Y) / 2, 0.012],
+    [0, SHOULDER_Y + 0.03, 0],
+  ], 7);
+  // Narrow at the hip, widening to real shoulders. A column of even width is
+  // a paper bag; the taper is what reads as a body.
+  const mb = tube(spine, (t) => 0.1 + t * t * 0.048, {
+    sides: 7, flatten: 0.62, capStart: true, capEnd: true,
+  });
+  // Shoulder caps, so the arms hang off something instead of out of a tube.
+  for (const side of [-1, 1]) {
+    mb.merge(tube(
+      resample([
+        [side * 0.04, SHOULDER_Y - 0.005, 0],
+        [side * 0.105, SHOULDER_Y + 0.01, 0],
+        [side * 0.14, SHOULDER_Y - 0.02, 0],
+      ], 5),
+      (t) => 0.056 - t * 0.018,
+      { sides: 6, capStart: true, capEnd: true }
+    ));
+  }
+  g.add(solid(mb, new Color("#b3a077"), 44, 0.7));
 
-  // Camera strap — a dark band across the shoulders
-  const strap = new Mesh(
-    new CylinderGeometry(0.015, 0.015, 0.28, 6),
-    new MeshBasicMaterial({ color: INK })
+  // A neck. Without one the head simply floated above the collar.
+  const neck = tube(
+    resample([[0, SHOULDER_Y - 0.02, 0], [0, HEAD_Y - HEAD_R * 0.78, 0]], 4),
+    (t) => 0.036 + t * 0.012,
+    { sides: 6, capStart: true, capEnd: true }
   );
-  strap.rotation.z = Math.PI / 2;
-  strap.position.set(0, SHOULDER_Y - 0.02, 0.09);
-  g.add(strap);
+  g.add(solid(neck, new Color("#e6d9c0"), 50, 0.5));
+
+  // Strap across the chest, running to the camera rather than floating.
+  const strap = tube(
+    resample([
+      [-0.15, SHOULDER_Y + 0.02, -0.02],
+      [-0.05, SHOULDER_Y - 0.1, 0.075],
+      [0.06, SHOULDER_Y - 0.14, 0.08],
+      [0.16, SHOULDER_Y + 0.01, -0.02],
+    ], 8),
+    () => 0.014,
+    { sides: 4 }
+  );
+  g.add(solid(strap, INK, 60, 0.5));
   return g;
 }
 
@@ -163,20 +219,20 @@ export function createPlayer(startX: number, startZ: number): Player {
   cameraProp.position.set(0, SHOULDER_Y - 0.16, 0.13);
   root.add(cameraProp);
 
-  const leftArm = makeLimb();
-  leftArm.position.set(-0.15, SHOULDER_Y, 0);
+  const leftArm = makeLimb(0.042, 0.028, LIMB_LEN + 0.02);
+  leftArm.position.set(-0.148, SHOULDER_Y - 0.015, 0);
   root.add(leftArm);
 
-  const rightArm = makeLimb();
-  rightArm.position.set(0.15, SHOULDER_Y, 0);
+  const rightArm = makeLimb(0.042, 0.028, LIMB_LEN + 0.02);
+  rightArm.position.set(0.148, SHOULDER_Y - 0.015, 0);
   root.add(rightArm);
 
-  const leftLeg = makeLimb();
-  leftLeg.position.set(-0.08, HIP_Y, 0);
+  const leftLeg = makeLimb(0.062, 0.042, LIMB_LEN + 0.14);
+  leftLeg.position.set(-0.075, HIP_Y, 0);
   root.add(leftLeg);
 
-  const rightLeg = makeLimb();
-  rightLeg.position.set(0.08, HIP_Y, 0);
+  const rightLeg = makeLimb(0.062, 0.042, LIMB_LEN + 0.14);
+  rightLeg.position.set(0.075, HIP_Y, 0);
   root.add(rightLeg);
 
   return {

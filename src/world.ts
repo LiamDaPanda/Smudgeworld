@@ -29,11 +29,14 @@ import {
   Scene,
   Vector3,
 } from "three";
+import {
+  BLOSSOM_TONES, buildTree, leafTone, TRUNK_TONES, type TreeKind,
+} from "./trees.ts";
+import { blob, place } from "./modeling.ts";
 
 const PAPER = new Color("#f4efe6");
 const INK = new Color("#1e1e1e");
 const INK_SOFT = new Color("#6b6559");
-const INK_MID = new Color("#4a463d");
 
 // A three-band gradient ramp — anything using MeshToonMaterial with this map
 // gets stepped cel-style shading: shadow, mid, highlight.
@@ -355,62 +358,8 @@ function outlinedMesh(geometry: BufferGeometry, opts: OutlineOptions = {}) {
 }
 
 
-// Short cross-hatch strokes on the shaded side of a spherical shape.
-function makeCrossHatch(radius: number, count: number, angle: number): LineSegments {
-  const positions: number[] = [];
-  const cx = Math.cos(angle) * radius * 0.35;
-  const cy = -radius * 0.15;
-  const cz = Math.sin(angle) * radius * 0.35;
-  for (let i = 0; i < count; i++) {
-    const t = (i / count - 0.5) * radius * 1.1;
-    const len = radius * (0.35 + Math.random() * 0.2);
-    const dx = Math.cos(angle + Math.PI / 2) * len;
-    const dz = Math.sin(angle + Math.PI / 2) * len;
-    positions.push(cx + t * 0.4 + dx * -0.5, cy + t, cz + dz * -0.5);
-    positions.push(cx + t * 0.4 + dx * 0.5, cy + t, cz + dz * 0.5);
-  }
-  const geo = new BufferGeometry();
-  geo.setAttribute("position", new Float32BufferAttribute(positions, 3));
-  return new LineSegments(geo, new LineBasicMaterial({ color: INK_MID, transparent: true, opacity: 0.4 }));
-}
 
-// Scribbly foliage marks — many tiny dashes clustered around the crown radius.
-// Not individual leaves; just implied leaf texture.
-function makeFoliageScribbles(rand: () => number, radius: number, count: number, color: Color): LineSegments {
-  const positions: number[] = [];
-  for (let i = 0; i < count; i++) {
-    const theta = rand() * Math.PI * 2;
-    const phi = (rand() - 0.5) * Math.PI;
-    const rr = radius * (0.85 + rand() * 0.2);
-    const x = Math.cos(theta) * Math.cos(phi) * rr;
-    const y = Math.sin(phi) * rr * 0.9;
-    const z = Math.sin(theta) * Math.cos(phi) * rr;
-    const len = 0.05 + rand() * 0.05;
-    const dx = (rand() - 0.5) * len;
-    const dy = (rand() - 0.5) * len * 0.4;
-    const dz = (rand() - 0.5) * len;
-    positions.push(x, y, z, x + dx, y + dy, z + dz);
-  }
-  const geo = new BufferGeometry();
-  geo.setAttribute("position", new Float32BufferAttribute(positions, 3));
-  return new LineSegments(geo, new LineBasicMaterial({ color, transparent: true, opacity: 0.7 }));
-}
 
-// Bark texture: short vertical dashes wrapped around the trunk.
-function makeBarkStrokes(rand: () => number, radius: number, height: number, count: number): LineSegments {
-  const positions: number[] = [];
-  for (let i = 0; i < count; i++) {
-    const a = rand() * Math.PI * 2;
-    const y0 = rand() * height * 0.9;
-    const y1 = y0 + 0.08 + rand() * 0.2;
-    const bx = Math.cos(a) * radius * 0.95;
-    const bz = Math.sin(a) * radius * 0.95;
-    positions.push(bx, y0, bz, bx + (rand() - 0.5) * 0.02, y1, bz + (rand() - 0.5) * 0.02);
-  }
-  const geo = new BufferGeometry();
-  geo.setAttribute("position", new Float32BufferAttribute(positions, 3));
-  return new LineSegments(geo, new LineBasicMaterial({ color: new Color("#5b4a34"), transparent: true, opacity: 0.6 }));
-}
 
 // A shared pool of watercolor textures so we don't allocate one per mesh.
 const CROWN_HEXES = ["#7f9b62", "#8ea86e", "#6f8a55", "#9cae76"];
@@ -423,289 +372,10 @@ const bushTex = BUSH_HEXES.map((h, i) => makeWatercolorTexture(h, 200 + i));
 const trunkTex = makeWatercolorTexture(TRUNK_HEX, 300, 128, 12, 4);
 const hillTex = HILL_HEXES.map((h, i) => makeWatercolorTexture(h, 400 + i, 512, 30, 12));
 
-// Deciduous tree — tapered trunk, layered crown, occasional branch line to
-// the outer canopy. Two crown lobes make it read more organic than a single
-// icosahedron.
-function makeDeciduousTree(rand: () => number): Group {
-  const tree = new Group();
-  const trunkH = 1.8 + rand() * 1.2;
-  const trunkR = 0.09 + rand() * 0.04;
-  const trunk = outlinedMesh(
-    new CylinderGeometry(trunkR * 0.7, trunkR * 1.3, trunkH, 7),
-    { map: trunkTex, fill: new Color("#a07f5a"), edgeThreshold: 60, toon: true }
-  );
-  trunk.position.y = trunkH / 2;
-  tree.add(trunk);
-  tree.add(makeBarkStrokes(rand, trunkR, trunkH, 10 + Math.floor(rand() * 6)));
-  if (rand() < 0.55) tree.add(makeTreeKnots(rand, trunkR, trunkH, 1 + Math.floor(rand() * 2)));
-
-  // Main crown
-  const crownR = 0.95 + rand() * 0.55;
-  const crownIdx = Math.floor(rand() * crownTex.length);
-  const crown = outlinedMesh(new IcosahedronGeometry(crownR, 1), {
-    map: crownTex[crownIdx],
-    fill: new Color(CROWN_HEXES[crownIdx]).multiplyScalar(1.4),
-    edgeThreshold: 45,
-    sketchPasses: 2,
-    toon: true,
-  });
-  crown.position.y = trunkH + crownR * 0.55;
-  crown.rotation.y = rand() * Math.PI;
-  crown.scale.set(1.05, 1.2, 1.05);
-  tree.add(crown);
-
-  // Secondary smaller lobe offset to one side for organic silhouette
-  if (rand() < 0.6) {
-    const lobeR = crownR * (0.55 + rand() * 0.25);
-    const lobeIdx = (crownIdx + 1) % crownTex.length;
-    const lobe = outlinedMesh(new IcosahedronGeometry(lobeR, 1), {
-      map: crownTex[lobeIdx],
-      fill: new Color(CROWN_HEXES[lobeIdx]).multiplyScalar(1.3),
-      edgeThreshold: 45,
-      sketchPasses: 2,
-      toon: true,
-    });
-    const ang = rand() * Math.PI * 2;
-    lobe.position.set(Math.cos(ang) * crownR * 0.6, trunkH + crownR * 0.9, Math.sin(ang) * crownR * 0.6);
-    tree.add(lobe);
-  }
-
-  // A visible branch from trunk to crown
-  const branchPos: number[] = [];
-  const branchAngle = rand() * Math.PI * 2;
-  const branchStartY = trunkH * (0.55 + rand() * 0.25);
-  branchPos.push(
-    Math.cos(branchAngle) * trunkR * 0.5, branchStartY, Math.sin(branchAngle) * trunkR * 0.5,
-    Math.cos(branchAngle) * crownR * 0.7, trunkH + crownR * 0.2, Math.sin(branchAngle) * crownR * 0.7
-  );
-  const branchGeo = new BufferGeometry();
-  branchGeo.setAttribute("position", new Float32BufferAttribute(branchPos, 3));
-  tree.add(new LineSegments(branchGeo, new LineBasicMaterial({ color: new Color("#5b4a34") })));
-
-  const scribbles = makeFoliageScribbles(rand, crownR * 1.05, 80 + Math.floor(rand() * 40), new Color("#2f4022"));
-  scribbles.position.copy(crown.position);
-  scribbles.scale.copy(crown.scale);
-  scribbles.rotation.copy(crown.rotation);
-  tree.add(scribbles);
-
-  const hatch = makeCrossHatch(crownR, 6 + Math.floor(rand() * 4), rand() * Math.PI * 2);
-  hatch.position.copy(crown.position);
-  tree.add(hatch);
-
-  return tree;
-}
-
-// Conifer — tall tapered cone with a slim trunk peeking out at the base.
-function makeConiferTree(rand: () => number): Group {
-  const tree = new Group();
-  const trunkH = 0.5 + rand() * 0.3;
-  const trunkR = 0.08;
-  const trunk = outlinedMesh(new CylinderGeometry(trunkR * 0.9, trunkR * 1.2, trunkH, 6), {
-    map: trunkTex, fill: new Color("#8a6a48"), edgeThreshold: 60, toon: true,
-  });
-  trunk.position.y = trunkH / 2;
-  tree.add(trunk);
-
-  const coneH = 2.6 + rand() * 1.4;
-  const coneR = 0.75 + rand() * 0.35;
-  const cone = outlinedMesh(new ConeGeometry(coneR, coneH, 8, 3), {
-    map: crownTex[2],
-    fill: new Color("#5f7d4a"),
-    edgeThreshold: 40,
-    sketchPasses: 2,
-    toon: true,
-  });
-  cone.position.y = trunkH + coneH / 2;
-  tree.add(cone);
-
-  const scribbles = makeFoliageScribbles(rand, coneR * 0.9, 40, new Color("#334a24"));
-  scribbles.position.copy(cone.position);
-  scribbles.scale.set(1, coneH / (coneR * 2), 1);
-  tree.add(scribbles);
-
-  return tree;
-}
-
-// --- Region-specific trees ---
-// Each region gets a silhouette you can read from across the park. Planting
-// density alone wasn't enough: five patches of the same tree at five
-// densities still looks like one wood with thin bits.
-
-/** Birch: pale slender trunk with dark bark dashes, crown carried high. */
-function makeBirchTree(rand: () => number): Group {
-  const tree = new Group();
-  const trunkH = 2.3 + rand() * 1.0;
-  const trunkR = 0.06 + rand() * 0.02;
-  const trunk = outlinedMesh(
-    new CylinderGeometry(trunkR * 0.7, trunkR, trunkH, 6),
-    { fill: new Color("#ddd7c4"), edgeThreshold: 60, toon: true }
-  );
-  trunk.position.y = trunkH / 2;
-  // A slight lean, which is most of what makes a stand of birch read as birch
-  trunk.rotation.z = (rand() - 0.5) * 0.1;
-  tree.add(trunk);
-
-  // Bark dashes — short horizontal ticks, denser toward the base
-  const dashes: number[] = [];
-  for (let i = 0; i < 16; i++) {
-    const t = rand() ** 1.5;
-    const y = 0.15 + t * trunkH * 0.85;
-    const a = rand() * Math.PI * 2;
-    const w = trunkR * (0.5 + rand() * 0.9);
-    dashes.push(
-      Math.cos(a) * trunkR * 1.02 - Math.sin(a) * w, y, Math.sin(a) * trunkR * 1.02 + Math.cos(a) * w,
-      Math.cos(a) * trunkR * 1.02 + Math.sin(a) * w, y, Math.sin(a) * trunkR * 1.02 - Math.cos(a) * w
-    );
-  }
-  const dashGeo = new BufferGeometry();
-  dashGeo.setAttribute("position", new Float32BufferAttribute(dashes, 3));
-  tree.add(new LineSegments(dashGeo, new LineBasicMaterial({ color: INK, transparent: true, opacity: 0.7 })));
-
-  const crownR = 1.0 + rand() * 0.4;
-  for (let i = 0; i < 2; i++) {
-    const r = crownR * (i === 0 ? 1 : 0.62);
-    const idx = Math.floor(rand() * crownTex.length);
-    const lobe = outlinedMesh(new IcosahedronGeometry(r, 1), {
-      map: crownTex[idx],
-      fill: new Color("#a8bf7c"),
-      edgeThreshold: 45, sketchPasses: 2, toon: true,
-    });
-    const a = rand() * Math.PI * 2;
-    lobe.position.set(Math.cos(a) * crownR * 0.4 * i, trunkH + r * 0.3 + i * 0.3, Math.sin(a) * crownR * 0.4 * i);
-    lobe.scale.set(1.1, 0.85, 1.1);
-    tree.add(lobe);
-  }
-  return tree;
-}
-
-/** Dead snag: no crown at all, just a broken trunk and bare forks. */
-function makeSnagTree(rand: () => number): Group {
-  const tree = new Group();
-  const trunkH = 1.4 + rand() * 1.3;
-  const trunkR = 0.1 + rand() * 0.05;
-  const trunk = outlinedMesh(
-    new CylinderGeometry(trunkR * 0.45, trunkR * 1.2, trunkH, 6),
-    { map: trunkTex, fill: new Color("#9a9080"), edgeThreshold: 55, toon: true }
-  );
-  trunk.position.y = trunkH / 2;
-  trunk.rotation.z = (rand() - 0.5) * 0.22;
-  tree.add(trunk);
-
-  // Bare forks: each branch is a two-segment kink so it doesn't read as a spike
-  const limbs: number[] = [];
-  const count = 3 + Math.floor(rand() * 3);
-  for (let i = 0; i < count; i++) {
-    const a = (i / count) * Math.PI * 2 + rand() * 0.7;
-    const y0 = trunkH * (0.5 + rand() * 0.45);
-    const l1 = 0.35 + rand() * 0.4;
-    const l2 = 0.25 + rand() * 0.35;
-    const x1 = Math.cos(a) * l1, z1 = Math.sin(a) * l1, y1 = y0 + l1 * (0.5 + rand() * 0.5);
-    const x2 = x1 + Math.cos(a + (rand() - 0.5)) * l2;
-    const z2 = z1 + Math.sin(a + (rand() - 0.5)) * l2;
-    const y2 = y1 + l2 * (0.3 + rand() * 0.7);
-    limbs.push(0, y0, 0, x1, y1, z1, x1, y1, z1, x2, y2, z2);
-  }
-  const limbGeo = new BufferGeometry();
-  limbGeo.setAttribute("position", new Float32BufferAttribute(limbs, 3));
-  tree.add(new LineSegments(limbGeo, new LineBasicMaterial({ color: new Color("#6b6355") })));
-  return tree;
-}
-
-/** Willow: short trunk, broad low crown, curtains of hanging strands. */
-function makeWillowTree(rand: () => number): Group {
-  const tree = new Group();
-  const trunkH = 1.1 + rand() * 0.5;
-  const trunkR = 0.16 + rand() * 0.06;
-  const trunk = outlinedMesh(
-    new CylinderGeometry(trunkR * 0.8, trunkR * 1.4, trunkH, 7),
-    { map: trunkTex, fill: new Color("#94795a"), edgeThreshold: 60, toon: true }
-  );
-  trunk.position.y = trunkH / 2;
-  tree.add(trunk);
-
-  const crownR = 1.3 + rand() * 0.5;
-  const crown = outlinedMesh(new IcosahedronGeometry(crownR, 1), {
-    map: crownTex[3],
-    fill: new Color("#9fb877"),
-    edgeThreshold: 45, sketchPasses: 2, toon: true,
-  });
-  crown.position.y = trunkH + crownR * 0.35;
-  crown.scale.set(1.25, 0.6, 1.25);
-  tree.add(crown);
-
-  // Hanging strands, longest at the crown's edge — the whole point of a willow
-  const strands: number[] = [];
-  for (let i = 0; i < 64; i++) {
-    const a = rand() * Math.PI * 2;
-    const d = (0.45 + rand() * 0.55) * crownR * 1.2;
-    const top = trunkH + crownR * 0.35 - Math.sqrt(Math.max(0, 1 - (d / (crownR * 1.25)) ** 2)) * crownR * 0.2;
-    const len = 0.5 + rand() * 1.1;
-    const x = Math.cos(a) * d, z = Math.sin(a) * d;
-    // Two segments with a slight outward drift so the curtain isn't ruled
-    const midY = top - len * 0.55;
-    strands.push(
-      x, top, z, x + (rand() - 0.5) * 0.08, midY, z + (rand() - 0.5) * 0.08,
-      x + (rand() - 0.5) * 0.08, midY, z + (rand() - 0.5) * 0.08,
-      x + (rand() - 0.5) * 0.14, top - len, z + (rand() - 0.5) * 0.14
-    );
-  }
-  const strandGeo = new BufferGeometry();
-  strandGeo.setAttribute("position", new Float32BufferAttribute(strands, 3));
-  tree.add(new LineSegments(strandGeo, new LineBasicMaterial({
-    color: new Color("#6f8c4e"), transparent: true, opacity: 0.75,
-  })));
-  return tree;
-}
-
-/** Ornamental: small, tightly rounded, sometimes in blossom. */
-const BLOSSOM_HEXES = ["#e8bcc8", "#f0e2e6", "#e6cddc"];
-function makeOrnamentalTree(rand: () => number): Group {
-  const tree = new Group();
-  const trunkH = 1.0 + rand() * 0.5;
-  const trunkR = 0.07 + rand() * 0.03;
-  const trunk = outlinedMesh(
-    new CylinderGeometry(trunkR * 0.8, trunkR * 1.2, trunkH, 6),
-    { map: trunkTex, fill: new Color("#9d7f5c"), edgeThreshold: 60, toon: true }
-  );
-  trunk.position.y = trunkH / 2;
-  tree.add(trunk);
-
-  const blossom = rand() < 0.45;
-  const crownR = 0.65 + rand() * 0.3;
-  const idx = Math.floor(rand() * crownTex.length);
-  const crown = outlinedMesh(new IcosahedronGeometry(crownR, 1), {
-    map: blossom ? undefined : crownTex[idx],
-    fill: blossom
-      ? new Color(BLOSSOM_HEXES[Math.floor(rand() * BLOSSOM_HEXES.length)])
-      : new Color("#8fae66"),
-    edgeThreshold: 45, sketchPasses: 2, toon: true,
-  });
-  // Clipped flat underneath — these are pruned trees, not wild ones
-  crown.position.y = trunkH + crownR * 0.75;
-  crown.scale.set(1.15, 0.95, 1.15);
-  tree.add(crown);
-
-  const scribbles = makeFoliageScribbles(
-    rand, crownR * 1.02, 45, new Color(blossom ? "#b98a9c" : "#3d5228")
-  );
-  scribbles.position.copy(crown.position);
-  scribbles.scale.copy(crown.scale);
-  tree.add(scribbles);
-  return tree;
-}
-
-export type TreeKind = "mixed" | "birch" | "snag" | "willow" | "ornamental" | "conifer";
-
-function makeTree(rand: () => number, kind: TreeKind = "mixed"): Group {
-  switch (kind) {
-    case "birch": return makeBirchTree(rand);
-    case "snag": return makeSnagTree(rand);
-    case "willow": return makeWillowTree(rand);
-    case "ornamental": return makeOrnamentalTree(rand);
-    case "conifer": return makeConiferTree(rand);
-    default: return rand() < 0.2 ? makeConiferTree(rand) : makeDeciduousTree(rand);
-  }
-}
+// --- Trees ---
+// The models themselves live in trees.ts, built from authored geometry rather
+// than assembled from primitives. What's here is the adapter: it takes the
+// builder output, gives it materials and the ink pass, and hands back a Group.
 
 /** Pick from a weighted mix, so a region reads as a species blend not a monoculture. */
 function pickKind<T>(rand: () => number, mix: [T, number][]): T {
@@ -715,34 +385,83 @@ function pickKind<T>(rand: () => number, mix: [T, number][]): T {
   return mix[mix.length - 1][0];
 }
 
+/**
+ * Turn an authored tree into a drawable Group.
+ *
+ * A tree is at most three meshes now — bark, and two tones of foliage — where
+ * before it was a Group of six or seven primitives each with its own outline
+ * passes. Better silhouette and fewer draw calls at the same time.
+ */
+function makeTree(rand: () => number, kind: TreeKind = "mixed"): Group {
+  const g = new Group();
+  const parts = buildTree(rand, kind);
+  const blossom = kind === "ornamental" && rand() < 0.42;
+
+  const wood = parts.wood.geometry();
+  g.add(outlinedMesh(wood, {
+    map: trunkTex,
+    fill: new Color(TRUNK_TONES[kind] ?? TRUNK_TONES.mixed),
+    // A high threshold on the trunk: the lofted tube has a facet every few
+    // degrees and inking all of them turns the bark into a scribble.
+    edgeThreshold: 58,
+    sketchPasses: 2,
+    toon: true,
+  }));
+
+  parts.leaf.forEach((mb, i) => {
+    if (mb.triangleCount === 0) return;
+    g.add(outlinedMesh(mb.geometry(), {
+      map: crownTex[i % crownTex.length],
+      fill: leafTone(kind, blossom, i),
+      // High: the bands of a blob meet at shallow angles, and inking those
+      // draws a wireframe box over every canopy. Only real creases should
+      // take a line.
+      edgeThreshold: 68,
+      sketchPasses: 1,
+      toon: true,
+    }));
+  });
+
+  g.userData.crownY = parts.crownY;
+  g.userData.crownR = parts.crownR;
+  return g;
+}
+
+
+/**
+ * A leafy shrub: a squat mass with a flat base and an irregular top, built
+ * from the same authored profile machinery as the tree canopies. A shrub is
+ * not a half-buried sphere — it sits ON the ground and spreads.
+ */
 function makeBush(rand: () => number): Group {
   const g = new Group();
-  const r = 0.35 + rand() * 0.2;
+  const r = 0.36 + rand() * 0.22;
+  const profile: [number, number][] = [
+    [r * 0.6, 0],
+    [r * 0.95, r * 0.3],
+    [r * 1.0, r * 0.7],
+    [r * 0.86, r * 1.05],
+    [r * 0.5, r * 1.3],
+    [0, r * 1.42],
+  ];
   const idx = Math.floor(rand() * bushTex.length);
-  const bush = outlinedMesh(new IcosahedronGeometry(r, 1), {
+  const mass = blob(profile, 8, rand, 0.3);
+  // A second smaller lump offset to one side, so the outline isn't a dome.
+  const lobeR = r * (0.5 + rand() * 0.25);
+  const a = rand() * Math.PI * 2;
+  mass.merge(place(
+    blob([[lobeR * 0.7, 0], [lobeR, lobeR * 0.3], [lobeR * 0.6, lobeR * 0.62], [0, lobeR * 0.7]], 7, rand, 0.28),
+    rand() * Math.PI * 2,
+    [Math.cos(a) * r * 0.55, r * 0.1, Math.sin(a) * r * 0.55]
+  ));
+
+  g.add(outlinedMesh(mass.geometry(), {
     map: bushTex[idx],
-    fill: new Color(BUSH_HEXES[idx]).multiplyScalar(1.35),
-    edgeThreshold: 40,
+    fill: new Color(BUSH_HEXES[idx]).multiplyScalar(1.15),
+    edgeThreshold: 66,
+    sketchPasses: 1,
     toon: true,
-  });
-  bush.position.y = r * 0.7;
-  bush.scale.set(1.1, 0.85, 1.1);
-  g.add(bush);
-
-  const scribbles = makeFoliageScribbles(rand, r * 1.05, 25, new Color("#334027"));
-  scribbles.position.copy(bush.position);
-  scribbles.scale.copy(bush.scale);
-  g.add(scribbles);
-
-  const shade: number[] = [];
-  for (let i = 0; i < 4; i++) {
-    const a = rand() * Math.PI * 2;
-    const rr = r * 0.9;
-    shade.push(Math.cos(a) * rr, 0.01, Math.sin(a) * rr, Math.cos(a + 0.4) * rr, 0.01, Math.sin(a + 0.4) * rr);
-  }
-  const geo = new BufferGeometry();
-  geo.setAttribute("position", new Float32BufferAttribute(shade, 3));
-  g.add(new LineSegments(geo, new LineBasicMaterial({ color: INK_SOFT, transparent: true, opacity: 0.4 })));
+  }));
   return g;
 }
 
@@ -1072,7 +791,7 @@ function makeTrellisArch(rand: () => number): Group {
     if (rand() < 0.35) {
       const bloom = new Mesh(
         new IcosahedronGeometry(0.038, 0),
-        new MeshBasicMaterial({ color: new Color(BLOSSOM_HEXES[Math.floor(rand() * BLOSSOM_HEXES.length)]) })
+        new MeshBasicMaterial({ color: new Color(BLOSSOM_TONES[Math.floor(rand() * BLOSSOM_TONES.length)]) })
       );
       bloom.position.copy(leaf.position).add(new Vector3(0.04, 0.05, 0.04));
       g.add(bloom);
@@ -1083,22 +802,40 @@ function makeTrellisArch(rand: () => number): Group {
 
 // A few small rocks: dark gray with tan wash. Sparse silhouette edges only.
 const rockTex = makeWatercolorTexture("#6a6560", 800, 128, 12, 6, 0.4);
+/**
+ * A boulder: few sides, hard wobble, half-buried.
+ *
+ * A scaled icosahedron is a smooth pebble seen from any angle. Real stone
+ * reads as a handful of big flat planes meeting at sharp corners, so this uses
+ * a low side count with a lot of radius deviation, and starts the profile
+ * below zero so the rock sits IN the ground rather than resting on it.
+ */
 function makeRock(rand: () => number): Group {
   const g = new Group();
-  const r = 0.16 + rand() * 0.22;
-  const rock = outlinedMesh(new IcosahedronGeometry(r, 0), {
+  const r = 0.18 + rand() * 0.24;
+  const h = r * (0.75 + rand() * 0.5);
+  const profile: [number, number][] = [
+    [r * 0.78, -h * 0.5],   // buried shoulder
+    [r * 1.0, -h * 0.12],
+    [r * 0.92, h * 0.3],
+    [r * 0.6, h * 0.66],
+    [r * 0.26, h * 0.86],
+    [0, h * 0.92],
+  ];
+  const mb = blob(profile, 5 + Math.floor(rand() * 2), rand, 0.34);
+  const rock = outlinedMesh(mb.geometry(), {
     map: rockTex,
-    fill: new Color("#a29b90"),
-    edgeThreshold: 32,
+    fill: new Color(["#a8a196", "#9a9389", "#b0a99d"][Math.floor(rand() * 3)]),
+    edgeThreshold: 26,
+    sketchPasses: 2,
     toon: true,
   });
-  rock.position.y = r * 0.55;
-  rock.scale.set(1.2 + rand() * 0.3, 0.7, 1 + rand() * 0.3);
+  rock.position.y = h * 0.5;
   rock.rotation.y = rand() * Math.PI;
+  rock.scale.set(1, 1, 0.85 + rand() * 0.3);
   g.add(rock);
-  const cracks = makeRockCracks(rand, r);
+  const cracks = makeRockCracks(rand, r * 0.8);
   cracks.position.copy(rock.position);
-  cracks.scale.copy(rock.scale);
   cracks.rotation.copy(rock.rotation);
   g.add(cracks);
   return g;
@@ -1314,35 +1051,6 @@ function makeRockCracks(rand: () => number, radius: number): LineSegments {
   return new LineSegments(geo, new LineBasicMaterial({ color: INK, transparent: true, opacity: 0.7 }));
 }
 
-// A tree-knot circle on the trunk.
-function makeTreeKnots(rand: () => number, radius: number, trunkH: number, count: number): LineSegments {
-  const positions: number[] = [];
-  for (let i = 0; i < count; i++) {
-    const y = trunkH * (0.3 + rand() * 0.5);
-    const ang = rand() * Math.PI * 2;
-    const cx = Math.cos(ang) * radius * 1.02;
-    const cz = Math.sin(ang) * radius * 1.02;
-    const kr = 0.03 + rand() * 0.03;
-    const seg = 10;
-    for (let s = 0; s < seg; s++) {
-      const a1 = (s / seg) * Math.PI * 2;
-      const a2 = ((s + 1) / seg) * Math.PI * 2;
-      // The knot ring lies in the plane tangent to the trunk surface
-      const t1x = -Math.sin(ang);
-      const t1z = Math.cos(ang);
-      const x1 = cx + Math.cos(a1) * kr * t1x;
-      const z1 = cz + Math.cos(a1) * kr * t1z;
-      const y1 = y + Math.sin(a1) * kr;
-      const x2 = cx + Math.cos(a2) * kr * t1x;
-      const z2 = cz + Math.cos(a2) * kr * t1z;
-      const y2 = y + Math.sin(a2) * kr;
-      positions.push(x1, y1, z1, x2, y2, z2);
-    }
-  }
-  const geo = new BufferGeometry();
-  geo.setAttribute("position", new Float32BufferAttribute(positions, 3));
-  return new LineSegments(geo, new LineBasicMaterial({ color: new Color("#3a2a1a"), transparent: true, opacity: 0.7 }));
-}
 
 // Grass and dirt watercolor textures for ground patches
 const grassPatchTex = makeWatercolorTexture("#6a8d4a", 1100, 256, 22, 8, 0, true);
@@ -2219,8 +1927,11 @@ export function buildWorld(worldWidth: number, worldDepth: number, site: WorldSi
       x: px, z: pz,
       // Crowns start above the trunk; below that the camera is just looking
       // past a stem and there's nothing to dissolve.
-      yBottom: yAt(px, pz) + 1.7 * s,
-      r: 1.5 * s,
+      // Taken from the model itself rather than guessed: a willow's crown
+      // starts about a metre off the ground and a birch's four metres up, and
+      // one hard-coded height fades the wrong trees.
+      yBottom: yAt(px, pz) + ((tree.userData.crownY as number) ?? 2) * s * 0.6,
+      r: ((tree.userData.crownR as number) ?? 1.5) * s,
       mats,
       faded: false,
     });
