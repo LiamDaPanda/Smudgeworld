@@ -1,6 +1,7 @@
 import {
   BoxGeometry,
   CanvasTexture,
+  SRGBColorSpace,
   CapsuleGeometry,
   Color,
   CylinderGeometry,
@@ -139,6 +140,7 @@ function makeBlobShadow(): Mesh {
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, 128, 128);
   const tex = new CanvasTexture(c);
+  tex.colorSpace = SRGBColorSpace;
   tex.needsUpdate = true;
   const m = new Mesh(
     new PlaneGeometry(0.9, 0.6),

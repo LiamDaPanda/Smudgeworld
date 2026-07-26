@@ -1,6 +1,7 @@
 import {
   BufferGeometry,
   CanvasTexture,
+  SRGBColorSpace,
   Color,
   ConeGeometry,
   DoubleSide,
@@ -58,6 +59,7 @@ function makeRockTexture(hex: string, seed: number, size = 256): CanvasTexture {
     ctx.stroke();
   }
   const t = new CanvasTexture(c);
+  t.colorSpace = SRGBColorSpace;
   t.needsUpdate = true;
   return t;
 }

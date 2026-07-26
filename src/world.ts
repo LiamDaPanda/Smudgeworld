@@ -3,7 +3,6 @@ import {
   BoxGeometry,
   BufferGeometry,
   CanvasTexture,
-  CircleGeometry,
   Color,
   ConeGeometry,
   CylinderGeometry,
@@ -147,6 +146,12 @@ function makeWatercolorTexture(
   }
 
   const tex = new CanvasTexture(c);
+  // These canvases hold sRGB values. Unflagged, three reads them as linear and
+  // the output transform lifts them on the way to the screen — every washed
+  // texture in the world was coming out paler and flatter than it was painted,
+  // which is why only the ground had any depth of colour in it.
+  tex.colorSpace = SRGBColorSpace;
+  tex.anisotropy = 8;
   tex.needsUpdate = true;
   return tex;
 }
@@ -1348,7 +1353,10 @@ const shadowTex = makeWatercolorTexture("#3a352b", 950, 128, 10, 4, 0, true);
 function makeGroundShadow(radius: number): Mesh {
   const m = new Mesh(
     new PlaneGeometry(radius * 2, radius * 1.2),
-    new MeshBasicMaterial({ map: shadowTex, color: new Color("#2b2b2b"), transparent: true, opacity: 0.28, depthWrite: false })
+    // Halved once the textures stopped being lifted by the output transform.
+    // At the old strength these read as mud stains on the lawn rather than
+    // as shade under a tree.
+    new MeshBasicMaterial({ map: shadowTex, color: new Color("#4b5040"), transparent: true, opacity: 0.15, depthWrite: false })
   );
   m.rotation.x = -Math.PI / 2;
   m.position.y = 0.003;
@@ -1500,21 +1508,99 @@ interface CloudsInfo {
 let cloudsInfo: CloudsInfo | null = null;
 function makeClouds(rand: () => number, worldWidth: number, worldDepth: number): Group {
   const g = new Group();
-  const cloudTex = makeWatercolorTexture("#c8c9c4", 700, 256, 20, 6, 0, true);
+  // Three washes rather than one, so a cloud bank is built from overlapping
+  // layers the way a wet-on-wet sky is, instead of one repeated stamp.
+  const cloudTex = [
+    makeWatercolorTexture("#c8c9c4", 700, 256, 20, 6, 0, true),
+    makeWatercolorTexture("#bfc4c8", 701, 256, 14, 9, 0, true),
+    makeWatercolorTexture("#d4cfc0", 702, 256, 26, 5, 0, true),
+  ];
   const speeds: number[] = [];
-  for (let i = 0; i < 14; i++) {
-    const w = 6 + rand() * 5;
-    const h = 2 + rand() * 1;
+  const cx = worldWidth / 2;
+  const cz = worldDepth / 2;
+
+  // Every cloud faces the middle of the park. The camera never leaves the map,
+  // so this is close enough to a billboard — and without it half the sky is
+  // planes seen edge-on, which is why the sky read as empty.
+  const face = (m: Mesh) => m.lookAt(cx, m.position.y * 0.55, cz);
+
+  // Layer 1: high thin veils, wide and faint.
+  for (let i = 0; i < 10; i++) {
+    const w = 26 + rand() * 26;
     const mesh = new Mesh(
-      new PlaneGeometry(w, h),
-      new MeshBasicMaterial({ map: cloudTex, color: new Color("#e0dcc9"), transparent: true, opacity: 0.6, depthWrite: false })
+      new PlaneGeometry(w, w * (0.2 + rand() * 0.12)),
+      new MeshBasicMaterial({
+        map: cloudTex[1], color: new Color("#e6e2d4"),
+        transparent: true, opacity: 0.4 + rand() * 0.18, depthWrite: false,
+        // Clouds sit past the fog's far plane, so with fog on they resolve to
+        // flat paper and the sky reads as empty.
+        fog: false,
+      })
     );
-    const angle = rand() * Math.PI * 2;
-    const radius = Math.max(worldWidth, worldDepth) * 0.6;
-    mesh.position.set(worldWidth / 2 + Math.cos(angle) * radius, 8 + rand() * 3, worldDepth / 2 + Math.sin(angle) * radius);
+    const a = rand() * Math.PI * 2;
+    const radius = Math.max(worldWidth, worldDepth) * (0.5 + rand() * 0.45);
+    mesh.position.set(cx + Math.cos(a) * radius, 26 + rand() * 16, cz + Math.sin(a) * radius);
+    face(mesh);
+    mesh.renderOrder = -3;
     g.add(mesh);
-    speeds.push(0.15 + rand() * 0.25);
+    speeds.push(0.07 + rand() * 0.1);
   }
+
+  // Layer 2: the main banks. Each is a knot of three or four overlapping
+  // puffs, which is what gives a cloud a lumpy silhouette instead of an
+  // ellipse.
+  for (let i = 0; i < 13; i++) {
+    const bank = new Group();
+    const scale = 1 + rand() * 1.5;
+    const puffs = 3 + Math.floor(rand() * 3);
+    for (let p = 0; p < puffs; p++) {
+      const w = (7 + rand() * 7) * scale;
+      const puff = new Mesh(
+        new PlaneGeometry(w, w * (0.42 + rand() * 0.26)),
+        new MeshBasicMaterial({
+          map: cloudTex[Math.floor(rand() * cloudTex.length)],
+          color: new Color(rand() < 0.35 ? "#c3c3bc" : "#fbf8ee"),
+          transparent: true, opacity: 0.6 + rand() * 0.28, depthWrite: false,
+          fog: false,
+        })
+      );
+      puff.position.set(
+        (rand() - 0.5) * w * 1.1,
+        (rand() - 0.5) * w * 0.22,
+        (rand() - 0.5) * 0.4
+      );
+      puff.renderOrder = -2;
+      bank.add(puff);
+    }
+    const a = rand() * Math.PI * 2;
+    const radius = Math.max(worldWidth, worldDepth) * (0.35 + rand() * 0.55);
+    bank.position.set(cx + Math.cos(a) * radius, 13 + rand() * 15, cz + Math.sin(a) * radius);
+    bank.lookAt(cx, bank.position.y * 0.55, cz);
+    g.add(bank);
+    speeds.push(0.14 + rand() * 0.2);
+  }
+
+  // Layer 3: a few low, darker shelves near the horizon — the thing that
+  // actually gives the sky a floor and stops it reading as flat paper.
+  for (let i = 0; i < 7; i++) {
+    const w = 18 + rand() * 22;
+    const mesh = new Mesh(
+      new PlaneGeometry(w, w * (0.13 + rand() * 0.1)),
+      new MeshBasicMaterial({
+        map: cloudTex[2], color: new Color("#b4b5ae"),
+        transparent: true, opacity: 0.42 + rand() * 0.2, depthWrite: false,
+        fog: false,
+      })
+    );
+    const a = rand() * Math.PI * 2;
+    const radius = Math.max(worldWidth, worldDepth) * (0.7 + rand() * 0.4);
+    mesh.position.set(cx + Math.cos(a) * radius, 6 + rand() * 5, cz + Math.sin(a) * radius);
+    face(mesh);
+    mesh.renderOrder = -4;
+    g.add(mesh);
+    speeds.push(0.05 + rand() * 0.07);
+  }
+
   cloudsInfo = { group: g, worldWidth, worldDepth, cloudSpeeds: speeds };
   return g;
 }
@@ -1563,9 +1649,9 @@ export function spawnButterflies(worldRoot: Group, spots: [number, number][]) {
 export function updateAtmosphere(dt: number, time = 0) {
   if (cloudsInfo) {
     const info = cloudsInfo;
-    const wrapMax = Math.max(info.worldWidth, info.worldDepth) * 0.9;
+    const wrapMax = Math.max(info.worldWidth, info.worldDepth) * 1.35;
     info.group.children.forEach((c, i) => {
-      c.position.x += info.cloudSpeeds[i] * dt;
+      c.position.x += (info.cloudSpeeds[i] ?? 0.1) * dt;
       if (c.position.x - info.worldWidth / 2 > wrapMax) {
         c.position.x -= wrapMax * 2;
       }
@@ -1616,11 +1702,15 @@ function pathPointAt(
 // Winding path that follows the terrain — each vertex is lifted to the
 // ground height at its (x, z), so the ribbon hugs the hills instead of
 // clipping through them as flat triangles.
-function makePath(cx1: number, cz1: number, cx2: number, cz2: number, viaX: number, viaZ: number, avoid?: AvoidCircle): Group {
+function makePath(
+  cx1: number, cz1: number, cx2: number, cz2: number, viaX: number, viaZ: number,
+  avoid?: AvoidCircle, tStart = 0
+): Group {
   const g = new Group();
   const steps = 90;
   const positions: number[] = [];
   const ribbonPos: number[] = [];
+  const ribbonAlpha: number[] = [];
   const yLift = 0.03; // sit slightly above the terrain to avoid z-fighting
   // Width envelope: full at the hub end (where several walks meet and have to
   // line up), narrowing to nothing at the far end so a spur peters out like a
@@ -1632,9 +1722,13 @@ function makePath(cx1: number, cz1: number, cx2: number, cz2: number, viaX: numb
     return 0.78 * taper * wobble;
   };
   let prev: [number, number, number] | null = null;
-  let prevW = widthAt(0);
+  let prevW = widthAt(tStart);
   for (let i = 0; i <= steps; i++) {
-    const t = i / steps;
+    // Walks start a little way out from the hub rather than at the exact
+    // point where all four meet: converging on one vertex drew a hard star
+    // of tan wedges under the player's feet. The gravel circle covers the
+    // middle instead.
+    const t = tStart + (i / steps) * (1 - tStart);
     const [x, z] = pathPointAt(t, cx1, cz1, cx2, cz2, viaX, viaZ, avoid);
     const y = sampleGroundHeight(x, z) + yLift;
     const w = widthAt(t);
@@ -1651,18 +1745,42 @@ function makePath(cx1: number, cz1: number, cx2: number, cz2: number, viaX: numb
       const pyR = sampleGroundHeight(prev[0] - nx * pw, prev[2] - nz * pw) + yLift;
       const yL = sampleGroundHeight(x + nx * w, z + nz * w) + yLift;
       const yR = sampleGroundHeight(x - nx * w, z - nz * w) + yLift;
-      // Two triangles forming the ribbon quad from prev→curr:
-      //   PL --- CL       (P = prev, C = curr, L = left, R = right)
-      //   |  \    |
-      //   PR --- CR
-      const PLx = prev[0] + nx * pw, PLz = prev[2] + nz * pw;
-      const PRx = prev[0] - nx * pw, PRz = prev[2] - nz * pw;
-      const CLx = x + nx * w,        CLz = z + nz * w;
-      const CRx = x - nx * w,        CRz = z - nz * w;
-      ribbonPos.push(
-        PLx, pyL, PLz,   CLx, yL, CLz,   PRx, pyR, PRz,
-        CLx, yL, CLz,    CRx, yR, CRz,   PRx, pyR, PRz,
-      );
+      // The cross-section is four vertices wide, not two: a solid core with a
+      // soft verge either side that fades to nothing. A two-vertex ribbon has
+      // a hard edge all the way down its length, which is what made the walks
+      // read as tan tape laid over the grass rather than worn ground.
+      //
+      //   outer   core   core   outer      (a = 0, 1, 1, 0)
+      //     |      |      |      |
+      const VERGE = 1.45; // outer edge sits this much wider than the core
+      const lane = (s: number, ox: number, oz: number, ow: number, oy: number) => {
+        const px = ox + nx * ow * s;
+        const pz = oz + nz * ow * s;
+        return [px, sampleGroundHeight(px, pz) + oy, pz] as [number, number, number];
+      };
+      // prev / curr cross-sections, outer-left → outer-right
+      const P = [
+        lane(VERGE, prev[0], prev[2], pw, yLift), lane(1, prev[0], prev[2], pw, yLift),
+        lane(-1, prev[0], prev[2], pw, yLift), lane(-VERGE, prev[0], prev[2], pw, yLift),
+      ];
+      const C = [
+        lane(VERGE, x, z, w, yLift), lane(1, x, z, w, yLift),
+        lane(-1, x, z, w, yLift), lane(-VERGE, x, z, w, yLift),
+      ];
+      const alpha = [0, 1, 1, 0];
+      for (let k = 0; k < 3; k++) {
+        const quad = [
+          [P[k], k], [C[k], k], [P[k + 1], k + 1],
+          [C[k], k], [C[k + 1], k + 1], [P[k + 1], k + 1],
+        ] as [[number, number, number], number][];
+        for (const [pt, ai] of quad) {
+          ribbonPos.push(pt[0], pt[1], pt[2]);
+          ribbonAlpha.push(1, 1, 1, alpha[ai]);
+        }
+      }
+      // Suppress unused-variable noise from the per-side heights we no longer
+      // need now that `lane` samples the ground itself.
+      void pyL; void pyR; void yL; void yR;
       positions.push(prev[0], prev[1] + 0.002, prev[2], x, y + 0.002, z);
     }
     prev = [x, y, z];
@@ -1670,15 +1788,17 @@ function makePath(cx1: number, cz1: number, cx2: number, cz2: number, viaX: numb
   }
   const ribbonGeo = new BufferGeometry();
   ribbonGeo.setAttribute("position", new Float32BufferAttribute(ribbonPos, 3));
+  ribbonGeo.setAttribute("color", new Float32BufferAttribute(ribbonAlpha, 4));
   // Solid tan color, no map — the ribbon has no UVs, so any texture would
   // sample inconsistently per triangle and show as tan zigzag facets on the
-  // ground. A flat color reads as one continuous path.
+  // ground. The colour attribute carries only alpha, for the verge fade.
   g.add(new Mesh(ribbonGeo, new MeshBasicMaterial({
     color: new Color("#d6b988"),
+    vertexColors: true,
     transparent: true,
     // Kept below 0.7: where two walks cross, the ribbons overlap and blend
     // twice, and at full strength the junction burns out into a tan star.
-    opacity: 0.55,
+    opacity: 0.6,
     depthWrite: false,
     polygonOffset: true,
     polygonOffsetFactor: -2,
@@ -1687,7 +1807,7 @@ function makePath(cx1: number, cz1: number, cx2: number, cz2: number, viaX: numb
 
   const centerGeo = new BufferGeometry();
   centerGeo.setAttribute("position", new Float32BufferAttribute(positions, 3));
-  g.add(new LineSegments(centerGeo, new LineBasicMaterial({ color: INK_SOFT, transparent: true, opacity: 0.4 })));
+  g.add(new LineSegments(centerGeo, new LineBasicMaterial({ color: INK_SOFT, transparent: true, opacity: 0.16 })));
   return g;
 }
 
@@ -1708,6 +1828,9 @@ export function paintSky(top: string, mid: string, horizon: string): CanvasTextu
   ctx.fillRect(0, 0, 4, 512);
   if (!skyTexture) {
     skyTexture = new CanvasTexture(skyCanvas);
+    // Same story as every other canvas here: unflagged it renders a stop
+    // brighter than painted, which is what kept the sky a flat pale wash.
+    skyTexture.colorSpace = SRGBColorSpace;
   }
   skyTexture.needsUpdate = true;
   return skyTexture;
@@ -1887,7 +2010,7 @@ export function buildWorld(worldWidth: number, worldDepth: number, site: WorldSi
   const addPath = (
     ax: number, az: number, bx: number, bz: number, viaX: number, viaZ: number
   ) => {
-    worldRoot.add(makePath(ax, az, bx, bz, viaX, viaZ, pathAvoid));
+    worldRoot.add(makePath(ax, az, bx, bz, viaX, viaZ, pathAvoid, 0.055));
     for (let i = 0; i <= 48; i++) {
       pathSamples.push(pathPointAt(i / 48, ax, az, bx, bz, viaX, viaZ, pathAvoid));
     }
@@ -1908,15 +2031,19 @@ export function buildWorld(worldWidth: number, worldDepth: number, site: WorldSi
   // cross each other and the junction reads as an accidental tan star.
   {
     const hy = sampleGroundHeight(hub[0], hub[1]);
-    const plaza = new Mesh(
-      new CircleGeometry(2.9, 30),
-      new MeshBasicMaterial({
-        color: new Color("#d6b988"), transparent: true, opacity: 0.62, depthWrite: false,
-      })
-    );
-    plaza.rotation.x = -Math.PI / 2;
-    plaza.position.set(hub[0], hy + 0.033, hub[1]);
-    worldRoot.add(plaza);
+    // Built from overlapping soft-edged washes rather than one disc: a circle
+    // of flat colour on the lawn reads as a spotlight, not as worn gravel.
+    for (let i = 0; i < 7; i++) {
+      const a = (i / 7) * Math.PI * 2;
+      const d = i === 0 ? 0 : 0.9 + rand() * 0.7;
+      const patch = makeGroundPatch(
+        hub[0] + Math.cos(a) * d, hub[1] + Math.sin(a) * d,
+        i === 0 ? 3.0 : 1.8 + rand() * 0.9,
+        dirtPatchTex, new Color("#dcc9a6"), i === 0 ? 0.42 : 0.24
+      );
+      patch.position.y = hy + 0.033;
+      worldRoot.add(patch);
+    }
     // Scuffed edge rather than a drawn kerb — a ring line here reads as a
     // gameplay marker, which is the last thing the middle of the park needs.
     for (let i = 0; i < 26; i++) {
@@ -1924,7 +2051,7 @@ export function buildWorld(worldWidth: number, worldDepth: number, site: WorldSi
       const d = 2.6 + rand() * 0.9;
       const speck = makeGroundPatch(
         hub[0] + Math.cos(a) * d, hub[1] + Math.sin(a) * d,
-        0.5 + rand() * 0.5, dirtPatchTex, new Color("#cbb083"), 0.4
+        0.5 + rand() * 0.5, dirtPatchTex, new Color("#d3bd96"), 0.26
       );
       speck.position.y = hy + 0.031;
       worldRoot.add(speck);
