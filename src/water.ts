@@ -2,6 +2,7 @@ import {
   BufferAttribute,
   BufferGeometry,
   CanvasTexture,
+  SRGBColorSpace,
   CircleGeometry,
   Color,
   DoubleSide,
@@ -75,6 +76,7 @@ function makePondTexture(size = 512): CanvasTexture {
   }
 
   const tex = new CanvasTexture(c);
+  tex.colorSpace = SRGBColorSpace;
   tex.needsUpdate = true;
   return tex;
 }

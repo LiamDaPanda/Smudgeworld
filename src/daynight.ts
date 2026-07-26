@@ -79,7 +79,7 @@ const KEYS: { at: number; p: Palette }[] = [
   {
     at: 0.25, // sunrise — warm peach wash
     p: {
-      top: "#8fa6c4", mid: "#e8b98d", horizon: "#f3d6ab",
+      top: "#7e97bd", mid: "#e8b184", horizon: "#f5d4a4",
       sunColor: 0xffcf9a, sunIntensity: 0.85,
       fillColor: 0xb9c8e0, fillIntensity: 0.35,
       ambient: 0xffe6cc, ambientIntensity: 0.5,
@@ -87,9 +87,13 @@ const KEYS: { at: number; p: Palette }[] = [
     },
   },
   {
-    at: 0.5, // noon — the familiar bright paper look
+    at: 0.5, // noon — soft blue overhead washing down to warm paper
+    // The old daytime sky was #dfe4e8 to #f6f0e2, which is very nearly white
+    // top to bottom. It read as a blank sheet above the treeline and gave the
+    // clouds nothing to sit against. A blue at the zenith grading into the
+    // paper tone at the horizon is what a wash actually does.
     p: {
-      top: "#dfe4e8", mid: "#eeeade", horizon: "#f6f0e2",
+      top: "#a6c1da", mid: "#d2dee2", horizon: "#f4eee1",
       sunColor: 0xfff2d0, sunIntensity: 1.1,
       fillColor: 0xc8d4e2, fillIntensity: 0.4,
       ambient: 0xffffff, ambientIntensity: 0.55,
@@ -99,7 +103,7 @@ const KEYS: { at: number; p: Palette }[] = [
   {
     at: 0.78, // sunset — amber and rose
     p: {
-      top: "#6d7ba0", mid: "#e0a074", horizon: "#f0c89a",
+      top: "#5c6b95", mid: "#dd9668", horizon: "#f1c392",
       sunColor: 0xffb877, sunIntensity: 0.75,
       fillColor: 0x9aa8cc, fillIntensity: 0.3,
       ambient: 0xffd9b8, ambientIntensity: 0.45,
