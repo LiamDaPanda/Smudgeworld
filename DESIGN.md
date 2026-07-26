@@ -1,10 +1,17 @@
-# Smudgeworld
+# Smudgeworld — design
 
-A 2D side-scrolling collection game. Web-first, mobile to follow.
+A photography collection game. Third-person, in a hand-drawn 3D park. Web and
+mobile from the same build, installable to a home screen.
+
+> This is the design doc: the shape of the thing and where it's going. For
+> what's actually built and how to run it, see [README.md](README.md).
+>
+> Sections are marked **[built]**, **[partial]** or **[planned]** so the two
+> don't drift apart.
 
 You play a stickman wandering a hand-drawn, line-art world with a camera around your neck. The world is smudged: scattered through it are dark, blurry figures called **smudges** that the eye can't resolve. Only a photograph can un-smudge one.
 
-## Core loop
+## Core loop — [built]
 
 - Explore the world on foot.
 - Spot smudges — dark, blurry figures the eye can't resolve.
@@ -13,29 +20,55 @@ You play a stickman wandering a hand-drawn, line-art world with a camera around 
 
 The world itself stays smudged forever. The only clear images of these creatures anywhere are the ones inside players' libraries.
 
-## Snapshots and grading
+## Snapshots and grading — [partial]
 
 A snapshot's **grade** is how sharp it develops:
 
-- Timing, framing, and condition bonuses (night, rain, etc.) set a **clarity percentage**.
+- Shutter timing against a pulsing focus ring, plus gear and condition bonuses,
+  set a **clarity percentage**.
 - A sloppy shot stays murky. A perfect one comes out razor sharp.
 - You can reshoot any smudge when it reappears.
 - Your library keeps the clearest take. Older takes become tradeable **spares**.
 - Every snapshot is stamped with the exact moment it was caught — provenance is part of the card.
 
+Spares are **[planned]** — the library keeps your best take today, but older
+ones aren't yet retained as separate tradeable objects. They need to be before
+the exchange can exist.
+
 ## Smudge types
 
-- **Common** — easy, always around.
-- **Timed** — demand split-second timing inside a one-second window.
-- **Day-locked** — appear only on certain real-world days (a Saturday street market, a monthly comet).
+- **Common** — easy, always around. **[built]**
+- **Timed** — demand split-second timing inside a one-second window. **[built]**,
+  as the After Dark subjects: they only exist at night and blink through a
+  one-second window on a six-second cycle.
+- **Day-locked** — appear only on certain real-world days (a Saturday street
+  market, a monthly comet). **[planned]** — this is the scarcity the marketplace
+  is built to trade, so it wants to land alongside accounts rather than before.
 
-## Sets and progression
+## Sets and progression — [built]
 
-- Snapshots slot into **sets** like "Park Life" or "After Dark."
-- Completing a set pays out coins and camera gear — zoom lenses, faster shutters, night film.
-- Gear unlocks deeper zones hiding rarer smudges.
+Three sets across eleven subjects:
 
-## The park
+| Set | Subjects |
+|---|---|
+| Park Life | Park Cat, Bench Sitter, Pigeon Council, Kite Runner, Fountain Diver |
+| Waterside | Heron, Koi Shadow, Dragonfly, Frog Chorus |
+| After Dark | Comet Sparrow, Blink Fox — night only |
+
+Completing a set pays coins. Coins buy camera gear:
+
+| Gear | Cost | Effect |
+|---|---|---|
+| Steady Grip | 120 | Focus ring pulses slower — easier to time |
+| Wide Lens | 220 | Spot smudges from half again as far |
+| Fast Shutter | 340 | The sharp part of the focus ring is wider |
+| Night Film | 480 | +12% clarity on every shot taken at night |
+| Fine Optics | 700 | +8% clarity on everything |
+
+Gear unlocking **deeper zones** with rarer smudges is **[planned]** — today it
+buys clarity and reach within the one park.
+
+## The park — [built]
 
 One continuous 120x90 map, laid out as five places rather than an even
 scatter of trees:
@@ -60,7 +93,7 @@ water and petering out where they arrive rather than stopping dead. Nothing
 plants on a walk, in the water, or on the sight line from the pond's south
 shore to the falls.
 
-## Narrative frame
+## Narrative frame — [built]
 
 Deliberately thin — the story exists to make the economy feel inevitable
 rather than bolted on.
@@ -86,19 +119,36 @@ Point 5 is the marketplace, pre-announced as fiction before it exists as
 software. Nothing in the letters dictates plot, so the trading and market work
 can hang off this frame without rewriting it.
 
-## Economy
+## Economy — [partial]
 
-- Single currency: **coins**.
-- Earned by playing, or topped up with real money.
-- Spent on a **player marketplace**:
+- Single currency: **coins**. **[built]** — earned from clarity and set payouts,
+  spent in the gear shop, saved to `localStorage`.
+- Topped up with real money. **[planned]**, and last on purpose.
+- Spent on a **player marketplace**: **[planned]**
   - Spares get listed.
   - Missed day-locked moments can be bought from someone who was there.
-- A small **transaction fee** fights inflation and doubles as revenue.
-- Scarcity comes from skill and the calendar — never loot odds.
+- A small **transaction fee** fights inflation and doubles as revenue. **[planned]**
+- Scarcity comes from skill and the calendar — never loot odds. **[built]**, in
+  that nothing in the game is random-rolled: clarity is your timing and your
+  gear, and the only gate is the clock.
 
 ## Build order
 
-1. **Single-player core.**
-2. **Accounts and direct trading.**
-3. **Marketplace** on earned coins.
-4. **Purchasable coins** — only once the economy has proven itself.
+1. **Single-player core.** — [built]
+2. **Accounts and direct trading.** — [planned]
+3. **Marketplace** on earned coins. — [planned]
+4. **Purchasable coins** — only once the economy has proven itself. — [planned]
+
+### What step 2 actually needs
+
+Recorded here so the jump from 1 to 2 isn't a surprise:
+
+- **Save state moves off the device.** Everything lives in `localStorage` under
+  one key today. Trading needs a server that owns the ledger, because a client
+  that can edit its own library can mint plates.
+- **Spares become real objects.** The library keeps a best-take per subject;
+  it has to keep every take, each with its own clarity and timestamp, before
+  there's anything to list.
+- **Provenance has to be trustworthy.** A snapshot is already stamped with the
+  moment it was caught. Once that stamp sets a price, it has to be issued by
+  the server rather than read off the player's clock.
