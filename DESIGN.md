@@ -1,6 +1,6 @@
 # Smudgeworld — design
 
-A photography collection game. 2D, three-quarter view, in a hand-drawn park.
+A photography collection game. 2D, side-scrolling, in a hand-drawn park.
 Web and mobile from the same build, installable to a home screen.
 
 > This is the design doc: the shape of the thing and where it's going. For

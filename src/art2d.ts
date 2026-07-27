@@ -262,3 +262,38 @@ export function makeSprite(
   draw(ctx);
   return { canvas, anchorX, anchorY };
 }
+
+/**
+ * Aerial perspective: a copy of a sprite washed toward the horizon colour.
+ *
+ * This has to happen on the sprite's own canvas. Doing it at draw time with a
+ * `source-atop` fill would tint everything already in the frame under that
+ * rectangle — sky, ground and all — which is exactly the pale rectangles that
+ * used to sit behind every distant tree.
+ */
+const hazeCache = new Map<string, Sprite>();
+const spriteIds = new WeakMap<HTMLCanvasElement, number>();
+let nextSpriteId = 0;
+
+export function hazed(s: Sprite, amount: number, hex: string): Sprite {
+  const a = Math.round(Math.min(1, Math.max(0, amount)) * 20) / 20;
+  if (a <= 0.001) return s;
+  let id = spriteIds.get(s.canvas);
+  if (id === undefined) { id = nextSpriteId++; spriteIds.set(s.canvas, id); }
+  const key = `${id}|${a}|${hex}`;
+  const hit = hazeCache.get(key);
+  if (hit) return hit;
+
+  const canvas = document.createElement("canvas");
+  canvas.width = s.canvas.width;
+  canvas.height = s.canvas.height;
+  const ctx = canvas.getContext("2d")!;
+  ctx.drawImage(s.canvas, 0, 0);
+  ctx.globalCompositeOperation = "source-atop";
+  ctx.globalAlpha = a;
+  ctx.fillStyle = hex;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  const out: Sprite = { canvas, anchorX: s.anchorX, anchorY: s.anchorY };
+  hazeCache.set(key, out);
+  return out;
+}

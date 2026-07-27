@@ -73,3 +73,36 @@ export function skyWash(): { tint: string; alpha: number } {
   const f = (tt - start) / Math.max(0.0001, end - start);
   return { tint: lerpHex(a.tint, b.tint, f), alpha: a.alpha + (b.alpha - a.alpha) * f };
 }
+
+interface SkyKey { at: number; top: string; mid: string; horizon: string }
+
+// The sky itself, which the top-down view had no room for and a side-scroller
+// spends a quarter of the screen on.
+const SKY: SkyKey[] = [
+  { at: 0.0, top: "#141d38", mid: "#243252", horizon: "#3b4664" },
+  { at: 0.25, top: "#6d86b4", mid: "#e3ab7e", horizon: "#f4d3a4" },
+  { at: 0.5, top: "#8fb6d8", mid: "#c6dbe4", horizon: "#eee9d8" },
+  { at: 0.78, top: "#50628f", mid: "#d98f63", horizon: "#f0bc8c" },
+];
+
+export function skyPalette(): { top: string; mid: string; horizon: string } {
+  let i0 = SKY.length - 1;
+  let i1 = 0;
+  for (let i = 0; i < SKY.length; i++) {
+    const next = SKY[(i + 1) % SKY.length];
+    const start = SKY[i].at;
+    const end = next.at > start ? next.at : next.at + 1;
+    const tt = timeOfDay >= start ? timeOfDay : timeOfDay + 1;
+    if (tt >= start && tt <= end) { i0 = i; i1 = (i + 1) % SKY.length; break; }
+  }
+  const a = SKY[i0], b = SKY[i1];
+  const start = a.at;
+  const end = b.at > start ? b.at : b.at + 1;
+  const tt = timeOfDay >= start ? timeOfDay : timeOfDay + 1;
+  const f = (tt - start) / Math.max(0.0001, end - start);
+  return {
+    top: lerpHex(a.top, b.top, f),
+    mid: lerpHex(a.mid, b.mid, f),
+    horizon: lerpHex(a.horizon, b.horizon, f),
+  };
+}
