@@ -93,31 +93,24 @@ water and petering out where they arrive rather than stopping dead. Nothing
 plants on a walk, in the water, or on the sight line from the pond's south
 shore to the falls.
 
-## Narrative frame — [built]
+## No story — [built]
 
-Deliberately thin — the story exists to make the economy feel inevitable
-rather than bolted on.
+There was an epistolary frame here: letters from an archivist that arrived on
+progress and seeded the economy as fiction before it existed as software. It's
+been cut. Progression is the whole of the game — capture, clarity, sets, coins,
+gear — and the letters were popups between the player and that loop.
 
-You're a new field photographer commissioned by **the Survey**. An archivist,
-M. Ardley, writes to you as your record grows. The letters arrive on progress
-you already made (first plate, a better second take, a night capture, a
-completed run) and establish, in order:
+The ideas the letters were carrying still hold, and the economy below still
+needs them to be true; they just don't need to be *told*:
 
-1. A photograph is the only clear likeness of a subject **anywhere** — including
-   in the archive itself. This is the root of all value.
-2. Your older takes aren't discarded; they're filed as **spares**. A murky plate
-   is still a true plate.
-3. Some subjects only surface at certain hours. **Miss the hour and it doesn't
-   come back around on your account** — but someone else was there.
-4. **Other photographers** are in the field with their own half-finished runs
-   and their own drawers of spares.
-5. The Survey keeps an **exchange**: spares posted against coin, missed hours
-   bought from someone who was there, and a small cut on every transaction
-   that keeps the coin honest.
+- A photograph is the only clear likeness of a subject anywhere. The world
+  staying smudged says this by itself.
+- Older takes survive as spares worth trading.
+- Miss an hour and it doesn't come back around on your account.
+- Other photographers are out there with their own half-finished runs.
 
-Point 5 is the marketplace, pre-announced as fiction before it exists as
-software. Nothing in the letters dictates plot, so the trading and market work
-can hang off this frame without rewriting it.
+If any of this ever needs stating, it should be stated by the marketplace UI
+when the marketplace exists, not by a letter before it does.
 
 ## Economy — [partial]
 

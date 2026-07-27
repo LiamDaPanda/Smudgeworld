@@ -48,25 +48,29 @@ npm run build    # tsc && vite build → dist/
 npm run preview  # serve the built bundle
 ```
 
-Node 22. No other setup — there are no assets to fetch.
+Node 22. No other setup.
 
 ## How it's built
 
 Vite + TypeScript (strict) + Three.js. Three runtime dependencies total.
 
-**Nothing is loaded from disk.** There are no model files, no texture images,
-no audio files:
+As things stand, the world is generated in code rather than loaded from
+files. That's how it got built, not a rule to preserve — if a model or a
+texture or a sound is easier to author in a tool and ship as a file, ship it
+as a file.
 
-- **Geometry** is Three primitives — cones, icosahedrons, cylinders — plus
-  hand-built `BufferGeometry` for the paths and all the line work.
+- **Geometry** is authored in `modeling.ts`: lofted tubes along a spine,
+  revolved profiles, extruded outlines, and faceted volumes from an authored
+  radius profile. Trees, bushes, boulders and the player are built from these.
+  Benches, lamps, the massif and the pedestrians are still Three primitives.
 - **Textures** are drawn into a `<canvas>` at load and wrapped in
   `CanvasTexture`: the watercolour washes, the rock strata, the painted park
   floor, the cloud puffs, the subject illustrations on the photo cards.
 - **Audio** is synthesised with WebAudio oscillators and noise buffers — wind,
   water, footsteps, a two-part shutter click, birds, crickets, UI stings.
 
-The payoff is that the whole game is one JS bundle (~640 KB, 167 KB gzipped)
-plus a handful of icons, which makes the offline install trivially small.
+The build is currently one JS bundle (~640 KB, 167 KB gzipped) plus the PWA
+icons in `public/`.
 
 ### The look
 
@@ -102,7 +106,6 @@ src/
   subjects.ts   Canvas-drawn illustration per subject.
   library.ts    Snapshots, sets, best-take bookkeeping.
   gear.ts       The five camera upgrades and what they change.
-  story.ts      The Survey letters.
   daynight.ts   Time of day driving sky, lights, fog, lamps, stars.
   water.ts      Pond, fish, waterfall.
   mountain.ts   The massif and cliff behind the falls.
@@ -127,8 +130,8 @@ installed copy keeps working offline but still picks up new builds.
 ## Status
 
 The single-player core is playable: eleven subjects across three sets, a
-day/night cycle, gear to spend coins on, and an epistolary frame that sets up
-the economy before it exists.
+day/night cycle, and gear to spend coins on. No story — progression is the
+whole of it.
 
 Save state is `localStorage` only. That's the thing that has to change before
 the trading and marketplace work in [DESIGN.md](DESIGN.md) — see the build
