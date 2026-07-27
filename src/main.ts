@@ -24,10 +24,6 @@ import {
   closeShop, grantGear, initShop, openShop, ownedGear,
   renderShop, restoreGear, spotRadius, type GearItem,
 } from "./gear.ts";
-import {
-  closeLetter, closeLetters, deliver, hasUnread, onLetterDelivered,
-  openLetters, restoreLetters, seenLetters, showLetter,
-} from "./story.ts";
 import type { GameState, Smudge } from "./types.ts";
 
 const canvas = document.getElementById("game") as HTMLCanvasElement;
@@ -241,32 +237,6 @@ document.getElementById("shop-modal")?.addEventListener("click", (e) => {
   if (e.target === e.currentTarget) closeShop();
 });
 
-// Letters. A delivered letter opens straight away — they're short, and the
-// beats are chosen so this only interrupts at a natural pause.
-onLetterDelivered((letter) => {
-  playUiTick();
-  showLetter(letter);
-  paintLettersBadge();
-});
-function paintLettersBadge() {
-  document.getElementById("letters-toggle")?.classList.toggle("has-new", hasUnread());
-}
-document.getElementById("letter-close")?.addEventListener("click", () => {
-  closeLetter();
-  paintLettersBadge();
-});
-document.getElementById("letters-toggle")?.addEventListener("click", () => {
-  playUiTick();
-  openLetters();
-});
-document.getElementById("letters-close")?.addEventListener("click", closeLetters);
-document.getElementById("letters-modal")?.addEventListener("click", (e) => {
-  if (e.target === e.currentTarget) closeLetters();
-});
-document.getElementById("letter-modal")?.addEventListener("click", (e) => {
-  if (e.target === e.currentTarget) { closeLetter(); paintLettersBadge(); }
-});
-paintLettersBadge();
 
 // Mute toggle — reflects state in the chip label.
 const muteBtn = document.getElementById("mute-toggle");
@@ -317,12 +287,8 @@ window.addEventListener("keydown", (e) => {
   if (e.key === "i" || e.key === "I") openInventory();
   if (e.key === "Escape") {
     // Escape backs out of whatever is open, innermost first.
-    const letterOpen = document.getElementById("letter-modal")?.classList.contains("open");
-    const lettersOpen = document.getElementById("letters-modal")?.classList.contains("open");
     const invOpen = document.getElementById("inventory-modal")?.classList.contains("open");
-    if (letterOpen) { closeLetter(); paintLettersBadge(); }
-    else if (lettersOpen) closeLetters();
-    else if (invOpen) closeInventory();
+    if (invOpen) closeInventory();
     else if (isPhotoModeActive()) { /* photo mode handles its own Escape */ }
     else if (gameActive) setPaused(!paused);
   }
@@ -388,10 +354,6 @@ async function playCutscene() {
   gameActive = true;
   await delay(400);
   shutter?.classList.remove("fire");
-  // Let the world settle before the commission letter lands, so it doesn't
-  // collide with the shutter flash.
-  await delay(900);
-  deliver("welcome");
 }
 
 function startGame() {
@@ -500,7 +462,6 @@ function saveGame() {
       snapshotCount: state.snapshotCount,
       xp,
       gear: ownedGear(),
-      letters: seenLetters(),
       library: lib,
     }));
   } catch { /* storage full or unavailable — play on without saving */ }
@@ -515,7 +476,6 @@ function loadGame() {
     state.snapshotCount = data.snapshotCount ?? 0;
     xp = data.xp ?? 0;
     restoreGear(data.gear);
-    restoreLetters(data.letters);
     restoreLibrary(data.library ?? null);
     // Reflect captured subjects on the world's smudges
     const captured = getCapturedSubjects();
@@ -687,17 +647,6 @@ function launchPhotoIfPossible() {
     updateHud(state);
     updateLevelHud();
 
-    // Story beats hang off progress the player already made. They're checked
-    // most-significant first and only one can fire per capture, so a letter
-    // never lands on top of another letter.
-    const summary = getSetSummary();
-    const allDone = summary.every((s) => s.complete);
-    if (allDone) deliver("complete");
-    else if (result.completedSet) deliver("firstSet");
-    else if (shot.set === "After Dark") deliver("nightfall");
-    else if (result.improvedBest && !result.newSubject) deliver("spares");
-    else if (state.snapshotCount === 1) deliver("firstCapture");
-    else if (levelFromXp(xp) >= 3) deliver("exchange");
 
     saveGame();
   });
@@ -742,12 +691,9 @@ window.addEventListener("keydown", (e) => {
 });
 
 function update(dt: number) {
-  // Reading a letter behaves like a soft pause — you shouldn't drift off
-  // through the park while the sheet is open in front of you.
-  const readingLetter = !!document.getElementById("letter-modal")?.classList.contains("open");
   // Pausing halts world time entirely — the clock, wandering smudges, and
   // drifting clouds all hold still until you resume.
-  if (paused || readingLetter) {
+  if (paused) {
     state.input.consumePhoto();
     state.input.consumeCameraYaw();
     return;
