@@ -1,7 +1,7 @@
 # Smudgeworld — design
 
-A photography collection game. Third-person, in a hand-drawn 3D park. Web and
-mobile from the same build, installable to a home screen.
+A photography collection game. 2D, three-quarter view, in a hand-drawn park.
+Web and mobile from the same build, installable to a home screen.
 
 > This is the design doc: the shape of the thing and where it's going. For
 > what's actually built and how to run it, see [README.md](README.md).
@@ -71,7 +71,8 @@ buys clarity and reach within the one park.
 ## The park — [built]
 
 One continuous 120x90 map, laid out as five places rather than an even
-scatter of trees:
+scatter of trees. Seen from above at an angle, so you can walk around a
+subject and approach it from any side:
 
 - **The green** — the central lawn you spawn on. Bright turf, long drifts of
   daisies, a gravel circle where four walks meet.
@@ -81,8 +82,8 @@ scatter of trees:
   box hedges, tight beds of colour, benches, rose arches over the walk.
 - **The wilds** — dry olive ground, dead snags, boulders, cairns, heather.
 - **The waterside** — the pond with a reed fringe and a sandy shore, willows
-  leaning over it, driftwood, and the massif behind with the falls coming
-  down a notch in the cliff.
+  leaning over it. (The massif and falls behind it existed in the 3D build and
+  have not been rebuilt.)
 
 Each region is a different plant list, not the same plants at a different
 spacing — silhouette is what tells you where you are from across the park.

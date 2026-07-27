@@ -1,13 +1,13 @@
 import { playShutter, playUiTick } from "./audio.ts";
-import { nightAmount, phaseName } from "./daynight.ts";
+import { nightAmount, phaseName } from "./daynight2d.ts";
 import { focusCycleSeconds, focusTolerance, gearBonuses } from "./gear.ts";
 import { subjectIllustration } from "./subjects.ts";
-import type { Smudge, Snapshot } from "./types.ts";
+import type { PhotoSubject, Snapshot } from "./types.ts";
 
 type OnComplete = (snapshot: Snapshot | null) => void;
 
 interface Session {
-  smudge: Smudge;
+  smudge: PhotoSubject;
   onComplete: OnComplete;
   running: boolean;
   startAt: number;
@@ -85,7 +85,7 @@ export function isPhotoModeActive() {
   return !!session?.active;
 }
 
-export function startPhotoMode(smudge: Smudge, onComplete: OnComplete) {
+export function startPhotoMode(smudge: PhotoSubject, onComplete: OnComplete) {
   ensureUI();
   session = {
     smudge,
@@ -223,7 +223,7 @@ function showResult(clarity: number, bonuses: { label: string; amount: number }[
     set: session.smudge.set,
     clarity,
     takenAt: new Date().toISOString(),
-  } as Snapshot;
+  } satisfies Snapshot;
 }
 
 function finish(accept: boolean) {
@@ -231,7 +231,7 @@ function finish(accept: boolean) {
   const overlay = document.getElementById("photo-overlay");
   overlay?.classList.remove("show");
   document.getElementById("pv-result")?.classList.remove("show");
-  const shot = accept ? session.smudge.__lastShot ?? null : null;
+  const shot = accept ? (session.smudge.__lastShot as Snapshot | undefined) ?? null : null;
   session.smudge.__lastShot = undefined;
   const onComplete = session.onComplete;
   const wasActive = session.active;

@@ -1,8 +1,9 @@
 # Smudgeworld
 
-A photography collection game. You play a stickman with a camera in a
-hand-drawn park. Scattered through it are dark, blurry figures — **smudges** —
-that the eye can't resolve. Only a photograph can un-smudge one.
+A 2D photography collection game. You play a stickman with a camera in a
+hand-drawn park, seen from a three-quarter view. Scattered through it are dark,
+blurry figures — **smudges** — that the eye can't resolve. Only a photograph
+can un-smudge one.
 
 **[Play it →](https://liamdapanda.github.io/Smudgeworld/)**
 
@@ -30,14 +31,12 @@ sharper.
 |---|---|---|
 | Walk | `W` `A` `S` `D` | Joystick, bottom left |
 | Sprint | `Shift` | Push the joystick to its rim |
-| Look | Right-drag | Drag the right half of the screen |
 | Photograph | `E`, `Space`, or left-click | The camera button, bottom right |
 | Collection | `I` | Collection button |
 | Pause | `Esc` | — |
 
-Movement is camera-relative — `W` is always into the screen. You don't have to
-stop walking to raise the camera; it works mid-stride, and whatever you're
-photographing holds still until you're done.
+You don't have to stop walking to raise the camera; it works mid-stride, and
+whatever you're photographing holds still until you're done.
 
 ## Running it
 
@@ -52,71 +51,65 @@ Node 22. No other setup.
 
 ## How it's built
 
-Vite + TypeScript (strict) + Three.js. Three runtime dependencies total.
+Vite + TypeScript (strict) and the Canvas2D API. **No runtime dependencies at
+all** — the whole game is 59 KB of JavaScript, 20 KB gzipped.
 
-As things stand, the world is generated in code rather than loaded from
-files. That's how it got built, not a rule to preserve — if a model or a
-texture or a sound is easier to author in a tool and ship as a file, ship it
-as a file.
+It was a Three.js game until recently. The 3D is gone; what's here is a
+top-down three-quarter view, which turns out to suit a game about walking up
+to something and framing it.
 
-- **Geometry** is authored in `modeling.ts`: lofted tubes along a spine,
-  revolved profiles, extruded outlines, and faceted volumes from an authored
-  radius profile. Trees, bushes, boulders and the player are built from these.
-  Benches, lamps, the massif and the pedestrians are still Three primitives.
-- **Textures** are drawn into a `<canvas>` at load and wrapped in
-  `CanvasTexture`: the watercolour washes, the rock strata, the painted park
-  floor, the cloud puffs, the subject illustrations on the photo cards.
-- **Audio** is synthesised with WebAudio oscillators and noise buffers — wind,
-  water, footsteps, a two-part shutter click, birds, crickets, UI stings.
+### Drawing
 
-The build is currently one JS bundle (~640 KB, 167 KB gzipped) plus the PWA
-icons in `public/`.
+The look is watercolour under ink — soft irregular washes with a sketchy
+outline drawn two or three times at falling opacity. `art2d.ts` has the
+primitives: wobbly closed blobs as smooth beziers, wash fills with pooled
+shade and a bleached highlight up-and-left, jittered ink loops, tapered
+strokes for anything with a length.
 
-### The look
+Every object is drawn once at load into an offscreen canvas (`sprites2d.ts`)
+with its origin at the point where it meets the ground, then blitted. A wood
+of 150 trees costs six baked canvases, not 150.
 
-Two techniques carry the hand-drawn style:
+Drawing in 2D means silhouette is decided directly rather than emerging from
+geometry — which is the thing the 3D build kept losing. A canopy is the shape
+drawn, not whatever a stack of rings happens to project to.
 
-- `outlinedMesh()` wraps every solid — a `MeshToonMaterial` against a
-  hand-authored three-band gradient ramp, plus `sketchyEdges()`, which draws
-  the same `EdgesGeometry` two or three times with per-vertex jitter and
-  falling opacity so silhouettes read as pencil rather than laser-cut.
-- Colour comes from splotchy canvas washes rather than flat fills, over a CSS
-  paper-grain multiply layer and a vignette. Nightfall is largely a CSS
-  multiply tint, because much of the world uses `MeshBasicMaterial` and
-  ignores scene lights entirely.
+### Rendering
 
-Every canvas texture is flagged `SRGBColorSpace`. Without that, three treats
-the canvas as linear data and the output transform lifts it — everything comes
-out a stop paler and flatter than it was painted.
+`render2d.ts` paints the ground canvas, then sorts everything standing on it
+by world Y and draws back to front. That sort is doing what a depth buffer did:
+a tree in front of the player occludes them, one behind doesn't. A tree
+directly between the camera and the player fades — in 3D that needed a camera
+boom march and a per-material dissolve; here it's a distance test on two
+numbers.
+
+Time of day is a single wash multiplied over the finished frame.
 
 ### Layout
 
 ```
 index.html      All the UI — HUD, modals, photo overlay, touch controls.
-                Real DOM above the canvas; only the 3D world is Three.
 src/
-  world.ts      The world generator: seeded RNG, regions, path network,
-                placement sampler, every flora and prop factory, hills,
-                clouds, sky. Deterministic — same seed, same park.
-  main.ts       Game loop and glue: HUD, save/load, proximity, camera boom.
-  player.ts     Rig, walk cycle, camera-relative movement, collision.
-  input.ts      Keyboard, mouse, touch joystick, orbit drag.
-  smudges.ts    Subject placement, wander, night gating.
+  art2d.ts      Drawing primitives: blobs, washes, ink, tapered strokes.
+  sprites2d.ts  Every object in the park, baked to an offscreen canvas.
+  player2d.ts   The photographer: four facings, four walk frames each.
+  world2d.ts    Park layout — regions, paths, placement, the ground canvas.
+  render2d.ts   Camera, depth sort, shadows, canopy fade.
+  smudges2d.ts  Subjects: placement, wander, night gating.
+  main2d.ts     Game loop and glue.
+  daynight2d.ts Time of day, as a colour wash.
   photo.ts      Photo mode: focus ring, shutter, develop, result card.
   subjects.ts   Canvas-drawn illustration per subject.
   library.ts    Snapshots, sets, best-take bookkeeping.
   gear.ts       The five camera upgrades and what they change.
-  daynight.ts   Time of day driving sky, lights, fog, lamps, stars.
-  water.ts      Pond, fish, waterfall.
-  mountain.ts   The massif and cliff behind the falls.
-  npc.ts        Pedestrians.
-  celestial.ts  Sun and moon bodies.
+  input.ts      Keyboard, mouse, touch joystick.
   audio.ts      WebAudio synthesis for everything you hear.
 public/         Icons, web manifest, service worker.
 ```
 
-`world.ts` is about a third of the codebase. That's deliberate — the park is
-generated, not authored, so all of that complexity lives in one place.
+Textures and audio are still generated in code rather than loaded from files.
+That's how it got built, not a rule to preserve — if an asset is easier to
+author in a tool and ship as a file, ship it as a file.
 
 ## Deploying
 
@@ -132,6 +125,10 @@ installed copy keeps working offline but still picks up new builds.
 The single-player core is playable: eleven subjects across three sets, a
 day/night cycle, and gear to spend coins on. No story — progression is the
 whole of it.
+
+Not carried over from the 3D build, and worth knowing about: the mountain and
+waterfall behind the pond, the wandering pedestrians, the flip-through
+cutscene on entering, and lamps that light at dusk.
 
 Save state is `localStorage` only. That's the thing that has to change before
 the trading and marketplace work in [DESIGN.md](DESIGN.md) — see the build
