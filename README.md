@@ -1,9 +1,9 @@
 # Smudgeworld
 
-A 2D photography collection game. You play a stickman with a camera in a
-hand-drawn park, seen from a three-quarter view. Scattered through it are dark,
-blurry figures — **smudges** — that the eye can't resolve. Only a photograph
-can un-smudge one.
+A 2D side-scrolling photography collection game. You play a stickman with a
+camera walking a hand-drawn park, seen from the side. Scattered along it are
+dark, blurry figures — **smudges** — that the eye can't resolve. Only a
+photograph can un-smudge one.
 
 **[Play it →](https://liamdapanda.github.io/Smudgeworld/)**
 
@@ -54,9 +54,8 @@ Node 22. No other setup.
 Vite + TypeScript (strict) and the Canvas2D API. **No runtime dependencies at
 all** — the whole game is 59 KB of JavaScript, 20 KB gzipped.
 
-It was a Three.js game until recently. The 3D is gone; what's here is a
-top-down three-quarter view, which turns out to suit a game about walking up
-to something and framing it.
+It was a Three.js game until recently. The 3D is gone; what's here is the
+side-scrolling view the design doc asked for in the first place.
 
 ### Drawing
 
@@ -76,12 +75,23 @@ drawn, not whatever a stack of rings happens to project to.
 
 ### Rendering
 
-`render2d.ts` paints the ground canvas, then sorts everything standing on it
-by world Y and draws back to front. That sort is doing what a depth buffer did:
-a tree in front of the player occludes them, one behind doesn't. A tree
-directly between the camera and the player fades — in 3D that needed a camera
-boom march and a per-material dissolve; here it's a distance test on two
-numbers.
+The park is a 340-unit horizontal strip and everything stands on one ground
+line. Depth is **parallax layers**, not a sort: six of them, from clouds at
+0.1 to foreground grass at 1.4, drawn back to front with no sorting at all.
+An item's screen position is `(x - camera.x) * parallax` — the *offset* from
+the camera shrinks with distance, so a far mountain still arrives when you
+walk to it, it just takes longer to slide past.
+
+Two things carry the rest of the depth. Aerial perspective: distant sprites
+are baked into hazed copies washed toward the horizon colour, cached per
+sprite. And a **rise** behind the trail — the tree band stands above the
+ground line, which is how a side-scroller says "further back", and the rise
+is the slope those trees are rooted in so they aren't floating.
+
+The river stands *above* the ground line rather than being cut into it. A
+side-scroller has one walkable line, so water on that line has nowhere to be
+except under the player's feet; putting it behind the trail means it reads as
+a river you walk along, and it gets to hold a far shore.
 
 Time of day is a single wash multiplied over the finished frame.
 
@@ -92,9 +102,9 @@ index.html      All the UI — HUD, modals, photo overlay, touch controls.
 src/
   art2d.ts      Drawing primitives: blobs, washes, ink, tapered strokes.
   sprites2d.ts  Every object in the park, baked to an offscreen canvas.
-  player2d.ts   The photographer: four facings, four walk frames each.
-  world2d.ts    Park layout — regions, paths, placement, the ground canvas.
-  render2d.ts   Camera, depth sort, shadows, canopy fade.
+  player2d.ts   The photographer in profile: two-bone limbs, six walk frames.
+  scene2d.ts    Park layout — sections, parallax layers, hills, the massif.
+  render2d.ts   Parallax, ground band, river, back rise, shadows.
   smudges2d.ts  Subjects: placement, wander, night gating.
   main2d.ts     Game loop and glue.
   daynight2d.ts Time of day, as a colour wash.

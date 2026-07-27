@@ -1,12 +1,12 @@
-// Game loop for the 2D build.
+// Game loop for the side-scrolling build.
 //
-// The systems that were never about rendering — photo mode, the library, the
-// gear shop, audio, the HUD — carry over unchanged. What's new is the world,
-// the renderer, and movement, which in 2D are all much smaller.
+// The park is a strip you walk left and right along. Photo mode, the library,
+// the gear shop, audio and the HUD are untouched — none of them ever cared how
+// the world was drawn.
 
 import { createInput } from "./input.ts";
 import {
-  advanceDay, clockString, nightAmount, phaseName, setTimeOfDay, skyWash,
+  advanceDay, clockString, nightAmount, phaseName, setTimeOfDay, skyPalette, skyWash,
 } from "./daynight2d.ts";
 import {
   initAudio, isMuted, playLevelUp, playNearby, playSetComplete,
@@ -21,14 +21,13 @@ import {
   closeShop, grantGear, initShop, openShop, ownedGear,
   renderShop, restoreGear, spotRadius, type GearItem,
 } from "./gear.ts";
-import { bakePlayer, facingFor, type Facing } from "./player2d.ts";
+import { bakePlayer, WALK_FRAMES, type Facing } from "./player2d.ts";
 import {
-  canopyAlpha, drawGround, drawProps, drawShadow, screenToWorld,
-  UNIT, worldToScreen, type Camera, type Drawable,
+  drawBackRise, drawGround, drawLayer, drawShadow, drawSky, drawWater, groundY,
+  UNIT, worldToScreenX, type Camera,
 } from "./render2d.ts";
+import { buildScene2D, WORLD_W } from "./scene2d.ts";
 import { bakeSmudge, createSmudges2D, updateSmudges2D, type Smudge2D } from "./smudges2d.ts";
-import { buildWorld2D, WORLD_H, WORLD_W } from "./world2d.ts";
-import { drawTree } from "./sprites2d.ts";
 import type { Snapshot } from "./types.ts";
 
 const canvas = document.getElementById("game") as HTMLCanvasElement;
@@ -47,30 +46,17 @@ function resize() {
 resize();
 window.addEventListener("resize", resize);
 
-const world = buildWorld2D();
+const scene = buildScene2D();
 const playerArt = bakePlayer();
 const smudgeArt = bakeSmudge();
-const smudges = createSmudges2D(world.regions, world.pond);
+const smudges = createSmudges2D(scene.sections);
 const input = createInput(canvas);
 
-const player = {
-  x: world.spawn[0],
-  y: world.spawn[1],
-  vx: 0, vy: 0,
-  facing: "down" as Facing,
-  phase: 0,
-};
-const cam: Camera = { x: player.x, y: player.y, zoom: 1 };
+const player = { x: scene.spawn, vx: 0, facing: "right" as Facing, phase: 0 };
+const cam: Camera = { x: player.x };
 
-// Solids the player collides with, flattened out of the prop list once.
-const solids = world.props.filter((p) => p.solid > 0).map((p) => ({ x: p.x, y: p.y, r: p.solid }));
-
-let coins = 0;
-let snapshotCount = 0;
-let xp = 0;
-let time = 0;
-let gameActive = false;
-let paused = false;
+let coins = 0, snapshotCount = 0, xp = 0, time = 0;
+let gameActive = false, paused = false;
 let nearest: Smudge2D | null = null;
 let lastChimed: Smudge2D | null = null;
 
@@ -78,7 +64,7 @@ const SAVE_KEY = "smudgeworld-save-v1";
 
 // ---------------- HUD ----------------
 
-function levelFromXp(v: number) { return 1 + Math.floor(v / 100); }
+const levelFromXp = (v: number) => 1 + Math.floor(v / 100);
 
 function updateHud() {
   const coin = document.getElementById("coin-val");
@@ -98,7 +84,7 @@ function updateHud() {
   const lvl = document.getElementById("level-val");
   const xpFill = document.getElementById("xp-fill");
   if (lvl) lvl.textContent = String(levelFromXp(xp));
-  if (xpFill) xpFill.style.width = `${(xp % 100)}%`;
+  if (xpFill) xpFill.style.width = `${xp % 100}%`;
 }
 
 function updateClockHud() {
@@ -117,13 +103,6 @@ function showToast(text: string, ms = 2400) {
   toastTimer = window.setTimeout(() => t.classList.remove("show"), ms);
 }
 
-function coinPop(n: number) {
-  if (n <= 0) return;
-  const el = document.getElementById("coin");
-  el?.classList.add("pop");
-  setTimeout(() => el?.classList.remove("pop"), 400);
-}
-
 // ---------------- Save ----------------
 
 function saveGame() {
@@ -131,22 +110,20 @@ function saveGame() {
     localStorage.setItem(SAVE_KEY, JSON.stringify({
       coins, snapshotCount, xp, gear: ownedGear(), library: serializeLibrary(),
     }));
-  } catch { /* storage unavailable — play on */ }
+  } catch { /* storage unavailable */ }
 }
-
 function loadGame() {
   try {
     const raw = localStorage.getItem(SAVE_KEY);
     if (!raw) return;
-    const data = JSON.parse(raw);
-    coins = data.coins ?? 0;
-    snapshotCount = data.snapshotCount ?? 0;
-    xp = data.xp ?? 0;
-    restoreGear(data.gear);
-    restoreLibrary(data.library);
-  } catch { /* corrupt save — start fresh */ }
+    const d = JSON.parse(raw);
+    coins = d.coins ?? 0;
+    snapshotCount = d.snapshotCount ?? 0;
+    xp = d.xp ?? 0;
+    restoreGear(d.gear);
+    restoreLibrary(d.library);
+  } catch { /* corrupt save */ }
 }
-
 loadGame();
 updateHud();
 renderLibrary();
@@ -170,8 +147,8 @@ function updateProximity() {
   let best: Smudge2D | null = null;
   let bestD = Infinity;
   for (const s of smudges) {
-    if (!s.visible) continue;
-    const d = Math.hypot(s.x - player.x, s.y - player.y);
+    if (!s.visible || s.captured) continue;
+    const d = Math.abs(s.x - player.x);
     const limit = s === nearest ? hold : acquire;
     if (d < limit && d < bestD) { best = s; bestD = d; }
   }
@@ -184,9 +161,7 @@ function updateProximity() {
       const n = document.getElementById("prox-name");
       if (n) n.textContent = "A blurry figure";
       if (best !== lastChimed) { lastChimed = best; playNearby(); }
-    } else {
-      prompt?.classList.remove("show");
-    }
+    } else prompt?.classList.remove("show");
   }
   if (!best) lastChimed = null;
   document.body.classList.toggle("near-smudge", !!best);
@@ -220,7 +195,8 @@ function launchPhoto() {
       showToast(`Photographer level ${levelFromXp(xp)}!`, 3000);
       playLevelUp();
     }
-    coinPop(gain);
+    document.getElementById("coin")?.classList.add("pop");
+    setTimeout(() => document.getElementById("coin")?.classList.remove("pop"), 400);
     updateHud();
     renderLibrary();
     renderShop();
@@ -228,7 +204,7 @@ function launchPhoto() {
   });
 }
 
-// ---------------- Input wiring ----------------
+// ---------------- UI wiring ----------------
 
 document.getElementById("inv-toggle")?.addEventListener("click", () => {
   playUiTick();
@@ -240,7 +216,7 @@ document.getElementById("shop-toggle")?.addEventListener("click", () => { playUi
 document.getElementById("shop-close")?.addEventListener("click", closeShop);
 
 const muteBtn = document.getElementById("mute-toggle");
-function paintMute() { if (muteBtn) muteBtn.textContent = isMuted() ? "Sound off" : "Sound on"; }
+const paintMute = () => { if (muteBtn) muteBtn.textContent = isMuted() ? "Sound off" : "Sound on"; };
 muteBtn?.addEventListener("click", () => { toggleMute(); paintMute(); });
 paintMute();
 
@@ -257,13 +233,11 @@ window.addEventListener("keydown", (e) => {
     const shop = document.getElementById("shop-modal")?.classList.contains("open");
     if (inv) closeInventory();
     else if (shop) closeShop();
-    else if (isPhotoModeActive()) { /* photo mode handles its own */ }
+    else if (isPhotoModeActive()) { /* handled in photo mode */ }
     else if (gameActive) setPaused(!paused);
   }
   if ((e.key === "e" || e.key === "E") && gameActive && !isPhotoModeActive() && nearest) launchPhoto();
 });
-
-// ---------------- Menu ----------------
 
 const menu = document.getElementById("menu-overlay");
 document.getElementById("menu-start")?.addEventListener("click", () => {
@@ -273,92 +247,100 @@ document.getElementById("menu-start")?.addEventListener("click", () => {
   gameActive = true;
 });
 
-// ---------------- Loop ----------------
+// ---------------- Movement ----------------
 
-const WALK = 7.5;
-const SPRINT = 12;
+const WALK = 8.5;
+const SPRINT = 14;
 
 function updatePlayer(dt: number) {
   let ix = input.moveX;
-  let iy = input.moveZ; // -1 is "up the screen"
-  const raw = Math.hypot(ix, iy);
+  const raw = Math.abs(ix);
   const DEAD = 0.14;
   let mag = 0;
-  if (raw > DEAD) { mag = Math.min(1, (raw - DEAD) / (1 - DEAD)); ix /= raw; iy /= raw; }
-  else { ix = 0; iy = 0; }
+  if (raw > DEAD) { mag = Math.min(1, (raw - DEAD) / (1 - DEAD)); ix = Math.sign(ix); }
+  else ix = 0;
 
   const speed = input.sprint ? SPRINT : WALK * (0.45 + 0.55 * mag);
-  const tx = ix * speed * mag;
-  const ty = iy * speed * mag;
+  const target = ix * speed * mag;
   const k = 1 - Math.exp(-(mag > 0 ? 16 : 20) * dt);
-  player.vx += (tx - player.vx) * k;
-  player.vy += (ty - player.vy) * k;
-  if (Math.hypot(player.vx, player.vy) < 0.03) { player.vx = 0; player.vy = 0; }
+  player.vx += (target - player.vx) * k;
+  if (Math.abs(player.vx) < 0.03) player.vx = 0;
 
-  player.x += player.vx * dt;
-  player.y += player.vy * dt;
-
-  // Collision: push out of any solid we've ended up inside.
-  for (const s of solids) {
-    const dx = player.x - s.x;
-    const dy = (player.y - s.y) / 0.7; // solids are squashed like the view
-    const d = Math.hypot(dx, dy);
-    const min = s.r + 0.35;
-    if (d < min && d > 0.0001) {
-      const push = (min - d) / d;
-      player.x += dx * push;
-      player.y += dy * push * 0.7;
-    }
+  const next = player.x + player.vx * dt;
+  // Trunks stop you. Only block when crossing into one, so you can never end
+  // up stuck inside a blocker if something else nudges you.
+  let blocked = false;
+  for (const b of scene.blockers) {
+    if (Math.abs(next - b.x) < b.r && Math.abs(player.x - b.x) >= b.r) { blocked = true; break; }
   }
-  player.x = Math.max(1.5, Math.min(WORLD_W - 1.5, player.x));
-  player.y = Math.max(1.5, Math.min(WORLD_H - 1.5, player.y));
+  if (!blocked) player.x = next;
+  player.x = Math.max(2, Math.min(WORLD_W - 2, player.x));
 
-  const gait = Math.hypot(player.vx, player.vy);
-  if (mag > 0) player.facing = facingFor(ix, iy, player.facing);
-  player.phase = (player.phase + gait * dt * 0.24) % 1;
-  return gait;
+  if (ix !== 0) player.facing = ix > 0 ? "right" : "left";
+  player.phase = (player.phase + Math.abs(player.vx) * dt * 0.22) % 1;
+  return Math.abs(player.vx);
 }
 
-const drawables: Drawable[] = [];
+// ---------------- Render ----------------
+
+const PLAYFIELD = 4;
+/** Layers below this index draw behind the river. */
+const BEHIND_WATER = 3;
 
 function render(gait: number) {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.clearRect(0, 0, vw, vh);
-  ctx.fillStyle = "#e9e5d6";
-  ctx.fillRect(0, 0, vw, vh);
+  const gy = groundY(vh);
 
-  drawGround(ctx, world, cam, vw, vh);
+  const sky = skyPalette();
+  drawSky(ctx, vw, vh, sky.top, sky.mid, sky.horizon);
+  drawGround(ctx, scene, cam, vw, vh);
 
-  // Shadows go straight onto the ground, before anything stands on it.
-  for (const p of world.props) {
-    if (p.solid <= 0) continue;
-    const [sx, sy] = worldToScreen(cam, p.x, p.y, vw, vh);
-    if (sx < -200 || sx > vw + 200 || sy < -200 || sy > vh + 200) continue;
-    drawShadow(ctx, cam, p.x, p.y, p.solid * 2.6 * p.scale, vw, vh, 0.2);
-  }
-  drawShadow(ctx, cam, player.x, player.y, 0.42, vw, vh, 0.28);
+  scene.layers.forEach((layer, i) => {
+    // The river stands above the ground line, between the far hills and the
+    // tree band, so the bank plants in front of it overlap the water.
+    if (i === BEHIND_WATER) {
+      drawWater(ctx, scene, cam, vw, vh);
+      drawBackRise(ctx, scene, cam, vw, vh);
+    }
 
-  drawables.length = 0;
-  for (const p of world.props) {
-    drawables.push({
-      x: p.x, y: p.y, sprite: p.sprite, scale: p.scale,
-      alpha: canopyAlpha(p, player.x, player.y),
-    });
-  }
-  // Smudges are drawn from the shared blur canvas rather than a Sprite.
-  const smudgeSprite = { canvas: smudgeArt, anchorX: 75, anchorY: 132 };
-  for (const s of smudges) {
-    if (!s.visible || s.captured) continue;
-    drawables.push({ x: s.x, y: s.y, sprite: smudgeSprite, scale: 1.0 });
-  }
-  const frame = playerArt.frames[player.facing][
-    gait > 0.4 ? Math.floor(player.phase * 4) % 4 : 0
-  ];
-  drawables.push({ x: player.x, y: player.y, sprite: frame, scale: 1.15, bias: 0.01 });
+    if (i !== PLAYFIELD) {
+      drawLayer(ctx, layer.items, layer.parallax, cam, vw, vh);
+      return;
+    }
+    // Contact shadows first, so nothing on the playfield floats.
+    for (const it of layer.items) {
+      if (it.scale < 0.9) continue;
+      const sx = worldToScreenX(cam, it.x, 1, vw);
+      if (sx < -80 || sx > vw + 80) continue;
+      drawShadow(ctx, sx, gy, 22 * it.scale, 0.14);
+    }
+    drawLayer(ctx, layer.items, layer.parallax, cam, vw, vh);
 
-  drawProps(ctx, drawables, cam, vw, vh);
+    for (const s of smudges) {
+      if (!s.visible || s.captured) continue;
+      const sx = worldToScreenX(cam, s.x, 1, vw);
+      if (sx < -140 || sx > vw + 140) continue;
+      const sc = (UNIT / 64) * 1.15;
+      ctx.drawImage(
+        smudgeArt,
+        sx - 75 * sc, gy - 138 * sc - s.y * UNIT,
+        150 * sc, 150 * sc
+      );
+    }
 
-  // Time-of-day wash over the finished frame.
+    const px = worldToScreenX(cam, player.x, 1, vw);
+    drawShadow(ctx, px, gy, 22, 0.3);
+    const frame = gait > 0.4
+      ? playerArt.frames[player.facing][Math.floor(player.phase * WALK_FRAMES) % WALK_FRAMES]
+      : playerArt.idle[player.facing];
+    const psc = (UNIT / 64) * 1.5;
+    ctx.drawImage(
+      frame.canvas,
+      px - frame.anchorX * psc, gy - frame.anchorY * psc,
+      frame.canvas.width * psc, frame.canvas.height * psc
+    );
+  });
+
   const wash = skyWash();
   if (wash.alpha > 0.01) {
     ctx.save();
@@ -370,6 +352,8 @@ function render(gait: number) {
   }
 }
 
+// ---------------- Loop ----------------
+
 let last = performance.now();
 function frame(now: number) {
   const dt = Math.min(0.05, (now - last) / 1000);
@@ -380,13 +364,14 @@ function frame(now: number) {
     advanceDay(dt);
     const night = nightAmount();
     const gait = gameActive && !isPhotoModeActive() ? updatePlayer(dt) : 0;
-
     updateSmudges2D(smudges, time, night, isPhotoModeActive() ? nearest : null);
 
-    // Camera eases toward the player rather than snapping.
-    const ck = 1 - Math.exp(-6 * dt);
-    cam.x += (player.x - cam.x) * ck;
-    cam.y += (player.y - cam.y) * ck;
+    // The camera leads in the direction of travel, so you see more of where
+    // you're going than where you've been, and it clamps at the map's ends.
+    const half = vw / (2 * UNIT);
+    const lead = player.vx * 0.22;
+    const target = Math.max(half, Math.min(WORLD_W - half, player.x + lead));
+    cam.x += (target - cam.x) * (1 - Math.exp(-7 * dt));
 
     if (gameActive && !isPhotoModeActive()) {
       updateProximity();
@@ -397,11 +382,11 @@ function frame(now: number) {
 
     updateClockHud();
     const walking = gait > 0.4;
-    const pondD = Math.hypot(player.x - world.pond.x, player.y - world.pond.y) - world.pond.r;
-    updateAudio(dt, {
-      waterDistance: Math.max(0, pondD), walking,
-      strideHz: input.sprint ? 3.1 : 2.0, night,
-    });
+    const w = scene.water[0];
+    const pondD = player.x > w.from && player.x < w.to
+      ? 0
+      : Math.min(Math.abs(player.x - w.from), Math.abs(player.x - w.to));
+    updateAudio(dt, { waterDistance: pondD, walking, strideHz: input.sprint ? 3.1 : 2.0, night });
     updateFootsteps(dt, walking, input.sprint ? 3.1 : 2.0);
     render(gait);
   }
@@ -412,24 +397,17 @@ requestAnimationFrame(frame);
 setInterval(saveGame, 15000);
 window.addEventListener("beforeunload", saveGame);
 
-// Debug hooks, same shape as the 3D build's so the test scripts still work.
 (window as unknown as { __sw: unknown }).__sw = {
-  warp: (x: number, y: number) => { player.x = x; player.y = y; cam.x = x; cam.y = y; },
-  pose: () => ({ x: player.x, y: player.y }),
+  warp: (x: number) => { player.x = x; cam.x = x; },
+  pose: () => ({ x: player.x }),
   setTime: (t: number) => setTimeOfDay(t),
   smudgeNames: () => smudges.map((s) => s.name),
   teleportToSmudge: (i: number) => {
     const s = smudges[i];
     if (!s) return;
-    player.x = s.x; player.y = s.y + 1.5;
-    cam.x = player.x; cam.y = player.y;
+    player.x = s.x - 1.2;
+    cam.x = player.x;
   },
-  subjectPos: () => nearest && { x: nearest.x, y: nearest.y },
+  subjectPos: () => nearest && { x: nearest.x },
   addCoins: (n: number) => { coins += n; updateHud(); renderShop(); },
-  screenToWorld: (sx: number, sy: number) => screenToWorld(cam, sx, sy, vw, vh),
-  unit: () => UNIT,
-  spriteURL: (kind: string, seed = 901) => {
-    const sp = drawTree(kind as never, 3, seed);
-    return sp.canvas.toDataURL("image/png");
-  },
 };

@@ -1,34 +1,79 @@
-// The photographer, drawn as sprites rather than posed as a rig.
+// The photographer, in profile.
 //
-// Four facings and four walk frames each. Baked once at load, which is cheap
-// enough (sixteen small canvases) and means the walk cycle costs nothing at
-// runtime beyond picking an index.
+// A side-scroller shows exactly one view of its hero, forever, so that view has
+// to carry everything. The top-down build could get away with a stick and a hat
+// because you mostly saw it from above; seen edge-on the same rig collapses —
+// both legs on one line, both arms on one line, and the whole thing reads as a
+// lamp post with a hat on.
+//
+// So: two-bone limbs with knees and elbows, the far arm and far leg painted a
+// shade darker so the pairs separate, and a silhouette that says *photographer*
+// (brim forward, camera on the chest) rather than *person*.
 
-import { hexA, makeSprite, seeded, type Pt, type Sprite } from "./art2d.ts";
+import { hexA, makeSprite, type Pt, type Sprite } from "./art2d.ts";
 
 const INK = "#22201c";
 const SKIN = "#efe4cf";
-const SHIRT = "#b3a077";
-const HAT = "#38553a";
-const HAT_DARK = "#2c4630";
-const CAM = "#8b6b45";
+const SHIRT = "#b8a578";
+const SHIRT_FAR = "#8d7d58";
+const TROUSER = "#4d5a63";
+const TROUSER_FAR = "#3a444b";
+const BOOT = "#3a2f26";
+const HAT = "#5b8452";
+const HAT_DARK = "#3f6440";
+const CAM = "#4f3d2b";
 
-export type Facing = "down" | "up" | "left" | "right";
+export type Facing = "left" | "right";
 
-const H = 92;          // sprite height in pixels at bake time
-const HEAD_R = 11;
+/**
+ * Standing height in pixels at bake time, measured feet to eyes.
+ *
+ * The canvas has to be taller than that: the hat crown reaches well above the
+ * head, and anything past the anchor is silently clipped by the sprite edge —
+ * which is how the photographer spent a build wearing no hat at all.
+ */
+const H = 96;
+const PAD_TOP = 28;
+const HEAD_R = 13.5;
+/** Thigh and shin, upper arm and forearm. */
+const L_THIGH = H * 0.23, L_SHIN = H * 0.21;
+const L_UPPER = H * 0.17, L_FORE = H * 0.16;
 
-function limb(ctx: CanvasRenderingContext2D, from: Pt, to: Pt, w: number, color = INK) {
+/** A two-bone limb: root, one bend, and a foot or hand at the end. */
+function bone(
+  ctx: CanvasRenderingContext2D, root: Pt, a1: number, a2: number,
+  l1: number, l2: number, w1: number, w2: number, color: string
+) {
+  const joint: Pt = [root[0] + Math.sin(a1) * l1, root[1] + Math.cos(a1) * l1];
+  const end: Pt = [joint[0] + Math.sin(a2) * l2, joint[1] + Math.cos(a2) * l2];
   ctx.strokeStyle = color;
-  ctx.lineWidth = w;
   ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.lineWidth = w1;
   ctx.beginPath();
-  ctx.moveTo(from[0], from[1]);
-  ctx.lineTo(to[0], to[1]);
+  ctx.moveTo(root[0], root[1]);
+  ctx.lineTo(joint[0], joint[1]);
   ctx.stroke();
+  ctx.lineWidth = w2;
+  ctx.beginPath();
+  ctx.moveTo(joint[0], joint[1]);
+  ctx.lineTo(end[0], end[1]);
+  ctx.stroke();
+  return end;
 }
 
-function drawCamera(ctx: CanvasRenderingContext2D, x: number, y: number, s = 1) {
+function drawBoot(ctx: CanvasRenderingContext2D, at: Pt, toe: number, dark: boolean) {
+  ctx.fillStyle = dark ? hexA(BOOT, 0.7) : BOOT;
+  ctx.beginPath();
+  ctx.moveTo(at[0] - 3.4, at[1] - 3);
+  ctx.lineTo(at[0] + toe * 8, at[1] - 2.6);
+  ctx.lineTo(at[0] + toe * 8.4, at[1] + 1.6);
+  ctx.lineTo(at[0] - 3.6, at[1] + 1.6);
+  ctx.closePath();
+  ctx.fill();
+}
+
+function drawCamera(ctx: CanvasRenderingContext2D, x: number, y: number, s: number) {
   ctx.save();
   ctx.translate(x, y);
   ctx.scale(s, s);
@@ -36,120 +81,184 @@ function drawCamera(ctx: CanvasRenderingContext2D, x: number, y: number, s = 1) 
   ctx.strokeStyle = INK;
   ctx.lineWidth = 1.2;
   ctx.beginPath();
-  ctx.moveTo(-8, -5); ctx.lineTo(8, -5); ctx.lineTo(8, 5); ctx.lineTo(-8, 5);
+  ctx.moveTo(-7, -5); ctx.lineTo(8, -5); ctx.lineTo(8, 5); ctx.lineTo(-7, 5);
   ctx.closePath();
   ctx.fill(); ctx.stroke();
-  // Prism bump
   ctx.beginPath();
-  ctx.moveTo(-3, -5); ctx.lineTo(-1, -8); ctx.lineTo(3, -8); ctx.lineTo(4, -5);
+  ctx.moveTo(-2, -5); ctx.lineTo(0, -8.4); ctx.lineTo(4, -8.4); ctx.lineTo(5, -5);
   ctx.closePath();
   ctx.fill(); ctx.stroke();
-  // Lens
+  // Lens barrel, pointing the way you walk.
+  ctx.fillStyle = "#6f5636";
+  ctx.beginPath();
+  ctx.moveTo(6, -3.4); ctx.lineTo(12, -2.8); ctx.lineTo(12, 2.8); ctx.lineTo(6, 3.4);
+  ctx.closePath();
+  ctx.fill(); ctx.stroke();
   ctx.fillStyle = "#2f2a22";
-  ctx.beginPath(); ctx.arc(0, 0, 3.4, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  ctx.beginPath(); ctx.ellipse(11.6, 0, 1.6, 2.8, 0, 0, Math.PI * 2); ctx.fill();
   ctx.restore();
 }
 
 /**
- * `phase` runs 0..1 over one stride. Legs swing in antiphase; the body lifts a
- * little at mid-stride, which is what stops a walk reading as a slide.
+ * `phase` runs 0..1 over one stride. Legs swing in antiphase, knees bend only
+ * on the forward swing, and the body lifts at mid-stride — which is the bit
+ * that stops a walk reading as a slide.
  */
-export function drawPlayerFrame(facing: Facing, phase: number, seed = 7): Sprite {
-  const rand = seeded(seed);
-  const swing = Math.sin(phase * Math.PI * 2);
-  const bob = Math.abs(Math.cos(phase * Math.PI * 2)) * 1.6;
-  const side = facing === "left" || facing === "right";
+export function drawPlayerFrame(facing: Facing, phase: number, idle = false): Sprite {
+  const p = phase * Math.PI * 2;
+  const bob = idle ? 0 : Math.abs(Math.cos(p)) * 2.2;
   const flip = facing === "left";
+  // Standing, a stride of zero puts both legs and both arms on exactly the same
+  // line and the whole figure flattens back into a post. The idle pose is a
+  // stance, not frame zero of the walk.
+  const swing = idle ? 0 : Math.sin(p);
+  const swingBack = idle ? 0 : Math.sin(p + Math.PI);
 
-  return makeSprite(64, H + 8, 32, H, (ctx) => {
+  return makeSprite(80, H + PAD_TOP + 6, 40, H + PAD_TOP, (ctx) => {
     if (flip) ctx.scale(-1, 1);
-    const groundY = 0;
-    const hipY = -H * 0.44 - bob;
-    const shoulderY = -H * 0.72 - bob;
-    const headY = -H * 0.85 - bob;
 
-    // Legs
-    const legSpread = side ? 0 : 5;
-    limb(ctx, [-legSpread, hipY], [-legSpread + swing * 7, groundY], 6.5);
-    limb(ctx, [legSpread, hipY], [legSpread - swing * 7, groundY], 6.5);
+    const hipY = -(L_THIGH + L_SHIN) - 2 - bob;
+    const shoulderY = hipY - H * 0.29;
+    const headY = shoulderY - HEAD_R * 1.2;
+    const hip: Pt = [-1, hipY];
 
-    // Torso — a slightly tapered slab, narrower at the hip
+    // --- Far leg and far arm, behind the torso ---
+    const farThigh = idle ? -0.16 : 0.5 * swingBack;
+    const farKnee = farThigh - (idle ? 0.06 : 0.62 * Math.max(0, Math.sin(p + Math.PI + 1.1)));
+    const farFoot = bone(ctx, hip, farThigh, farKnee, L_THIGH, L_SHIN, 8.5, 7, TROUSER_FAR);
+    drawBoot(ctx, farFoot, 1, true);
+
+    const farUpper = (idle ? 0.1 : 0.62 * swing) - 0.18;
+    const farElbow = farUpper + (idle ? 0.34 : 0.5);
+    const farHand = bone(ctx, [-1, shoulderY + 4], farUpper, farElbow, L_UPPER, L_FORE, 7, 6, SHIRT_FAR);
+    ctx.fillStyle = hexA(SKIN, 0.7);
+    ctx.beginPath(); ctx.arc(farHand[0], farHand[1], 3.2, 0, Math.PI * 2); ctx.fill();
+
+    // --- Torso: a tapered slab leaning very slightly into the walk ---
     ctx.fillStyle = SHIRT;
     ctx.strokeStyle = INK;
-    ctx.lineWidth = 1.4;
+    ctx.lineWidth = 1.5;
     ctx.beginPath();
-    const tw = side ? 7 : 10;
-    ctx.moveTo(-tw * 0.8, hipY + 2);
-    ctx.lineTo(tw * 0.8, hipY + 2);
-    ctx.lineTo(tw, shoulderY);
-    ctx.lineTo(-tw, shoulderY);
+    ctx.moveTo(-7.5, hipY + 3);
+    ctx.quadraticCurveTo(-10, (hipY + shoulderY) / 2, -8.8, shoulderY);
+    ctx.quadraticCurveTo(-1, shoulderY - 3, 8.8, shoulderY + 0.6);
+    ctx.quadraticCurveTo(10, (hipY + shoulderY) / 2, 7, hipY + 3);
     ctx.closePath();
     ctx.fill();
     ctx.stroke();
-
-    // Arms, swinging opposite the legs
-    const armX = side ? 1 : tw + 1;
-    limb(ctx, [-armX, shoulderY + 2], [-armX - swing * 4, hipY + 6], 5);
-    limb(ctx, [armX, shoulderY + 2], [armX + swing * 4, hipY + 6], 5);
-
-    // Neck
-    limb(ctx, [0, shoulderY], [0, headY + HEAD_R * 0.6], 4.5, SKIN);
-
-    // Head — an egg, wider at the cranium
-    ctx.fillStyle = SKIN;
+    // Belt
     ctx.strokeStyle = hexA(INK, 0.55);
-    ctx.lineWidth = 1.2;
+    ctx.lineWidth = 2.6;
     ctx.beginPath();
-    ctx.ellipse(0, headY, HEAD_R * 0.86, HEAD_R, 0, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.moveTo(-7.2, hipY + 1.5); ctx.lineTo(7, hipY + 1.5);
     ctx.stroke();
 
-    // Hat: brim then a low crown. Facing forward the brim reads as an ellipse;
-    // from the side it's a line with a bump.
-    ctx.fillStyle = HAT_DARK;
-    ctx.strokeStyle = INK;
+    // --- Near leg, in front ---
+    const nearThigh = idle ? 0.14 : 0.5 * swing;
+    const nearKnee = nearThigh - (idle ? 0.1 : 0.62 * Math.max(0, Math.sin(p + 1.1)));
+    const nearFoot = bone(ctx, hip, nearThigh, nearKnee, L_THIGH, L_SHIN, 9, 7.5, TROUSER);
+    drawBoot(ctx, nearFoot, 1, false);
+
+    // --- Neck and head ---
+    ctx.strokeStyle = SKIN;
+    ctx.lineCap = "round";
+    ctx.lineWidth = 5;
+    ctx.beginPath();
+    ctx.moveTo(1, shoulderY + 1);
+    ctx.lineTo(1.5, headY + HEAD_R * 0.55);
+    ctx.stroke();
+
+    // Head in profile: an egg with a nose, tipped forward a touch.
+    ctx.save();
+    ctx.translate(1.5, headY);
+    ctx.rotate(0.08);
+    ctx.fillStyle = SKIN;
+    ctx.strokeStyle = hexA(INK, 0.6);
     ctx.lineWidth = 1.3;
     ctx.beginPath();
-    ctx.ellipse(0, headY - HEAD_R * 0.34, HEAD_R * 1.42, HEAD_R * 0.46, 0, 0, Math.PI * 2);
+    ctx.moveTo(-HEAD_R * 0.85, 0);
+    ctx.quadraticCurveTo(-HEAD_R * 0.9, -HEAD_R, 0, -HEAD_R);
+    ctx.quadraticCurveTo(HEAD_R * 0.85, -HEAD_R, HEAD_R * 0.86, -HEAD_R * 0.02);
+    ctx.lineTo(HEAD_R * 1.0, HEAD_R * 0.2);   // nose, small — any bigger and
+    ctx.lineTo(HEAD_R * 0.76, HEAD_R * 0.32); // the profile reads as a beak
+    ctx.quadraticCurveTo(HEAD_R * 0.6, HEAD_R * 0.98, 0, HEAD_R * 0.94);
+    ctx.quadraticCurveTo(-HEAD_R * 0.82, HEAD_R * 0.86, -HEAD_R * 0.85, 0);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    // Eye and a hint of jaw
+    ctx.fillStyle = hexA(INK, 0.8);
+    ctx.beginPath(); ctx.ellipse(HEAD_R * 0.42, -HEAD_R * 0.1, 1.2, 1.6, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = hexA(INK, 0.28);
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(HEAD_R * 0.7, HEAD_R * 0.36);
+    ctx.quadraticCurveTo(HEAD_R * 0.1, HEAD_R * 0.72, -HEAD_R * 0.5, HEAD_R * 0.6);
+    ctx.stroke();
+
+    // Hat. Brim first and low-contrast, crown over it and rounded: a brim drawn
+    // last, dark and wide, is just a black bar sitting on top of the head at
+    // any size you actually play at.
+    ctx.strokeStyle = INK;
+    ctx.lineWidth = 1.3;
+    ctx.fillStyle = HAT_DARK;
+    ctx.beginPath();
+    ctx.moveTo(-HEAD_R * 0.86, -HEAD_R * 0.5);
+    ctx.quadraticCurveTo(HEAD_R * 0.5, -HEAD_R * 0.78, HEAD_R * 1.34, -HEAD_R * 0.6);
+    ctx.quadraticCurveTo(HEAD_R * 0.5, -HEAD_R * 0.3, -HEAD_R * 0.84, -HEAD_R * 0.34);
+    ctx.closePath();
     ctx.fill(); ctx.stroke();
     ctx.fillStyle = HAT;
     ctx.beginPath();
-    ctx.moveTo(-HEAD_R * 0.92, headY - HEAD_R * 0.4);
-    ctx.quadraticCurveTo(-HEAD_R * 0.9, headY - HEAD_R * 1.25, 0, headY - HEAD_R * 1.28);
-    ctx.quadraticCurveTo(HEAD_R * 0.9, headY - HEAD_R * 1.25, HEAD_R * 0.92, headY - HEAD_R * 0.4);
+    ctx.moveTo(-HEAD_R * 0.8, -HEAD_R * 0.56);
+    ctx.quadraticCurveTo(-HEAD_R * 0.86, -HEAD_R * 1.44, -HEAD_R * 0.1, -HEAD_R * 1.5);
+    ctx.quadraticCurveTo(HEAD_R * 0.78, -HEAD_R * 1.44, HEAD_R * 0.84, -HEAD_R * 0.62);
     ctx.closePath();
     ctx.fill(); ctx.stroke();
+    // A band where the crown meets the brim, so the two shapes separate.
+    ctx.strokeStyle = hexA("#2f4a33", 0.85);
+    ctx.lineWidth = 2.2;
+    ctx.beginPath();
+    ctx.moveTo(-HEAD_R * 0.78, -HEAD_R * 0.66);
+    ctx.quadraticCurveTo(0, -HEAD_R * 0.82, HEAD_R * 0.82, -HEAD_R * 0.7);
+    ctx.stroke();
+    ctx.restore();
 
-    // Camera on a strap — only visible from the front and the side.
-    if (facing !== "up") {
-      ctx.strokeStyle = hexA(INK, 0.8);
-      ctx.lineWidth = 1.6;
-      ctx.beginPath();
-      ctx.moveTo(-tw * 0.75, shoulderY + 1);
-      ctx.quadraticCurveTo(0, shoulderY + 13, tw * 0.75, shoulderY + 1);
-      ctx.stroke();
-      drawCamera(ctx, side ? 3 : 0, shoulderY + 15, side ? 0.85 : 1);
-    }
-    void rand;
+    // --- Camera on its strap, and the near arm resting on it ---
+    ctx.strokeStyle = hexA(INK, 0.85);
+    ctx.lineWidth = 1.8;
+    ctx.beginPath();
+    ctx.moveTo(-5.5, shoulderY + 1);
+    ctx.quadraticCurveTo(1, shoulderY + 12, 5, shoulderY + 4);
+    ctx.stroke();
+    drawCamera(ctx, 3, shoulderY + 18, 0.95);
+
+    const nearUpper = (idle ? -0.1 : 0.62 * swingBack) - 0.18;
+    const nearElbow = nearUpper + (idle ? 0.38 : 0.55);
+    const nearHand = bone(ctx, [2, shoulderY + 4], nearUpper, nearElbow, L_UPPER, L_FORE, 7.5, 6.5, SHIRT);
+    ctx.fillStyle = SKIN;
+    ctx.strokeStyle = hexA(INK, 0.5);
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(nearHand[0], nearHand[1], 3.4, 0, Math.PI * 2);
+    ctx.fill(); ctx.stroke();
   });
 }
 
 export interface PlayerSprites {
   frames: Record<Facing, Sprite[]>;
+  idle: Record<Facing, Sprite>;
 }
+
+/** Six frames reads as a walk; four reads as a shuffle. */
+const PHASES = [0, 1 / 6, 2 / 6, 3 / 6, 4 / 6, 5 / 6];
+export const WALK_FRAMES = PHASES.length;
 
 export function bakePlayer(): PlayerSprites {
-  const facings: Facing[] = ["down", "up", "left", "right"];
   const frames = {} as Record<Facing, Sprite[]>;
-  for (const f of facings) {
-    frames[f] = [0, 0.25, 0.5, 0.75].map((p) => drawPlayerFrame(f, p));
+  const idle = {} as Record<Facing, Sprite>;
+  for (const f of ["left", "right"] as Facing[]) {
+    frames[f] = PHASES.map((p) => drawPlayerFrame(f, p));
+    idle[f] = drawPlayerFrame(f, 0, true);
   }
-  return { frames };
-}
-
-/** Which of the four facings a heading corresponds to. */
-export function facingFor(dx: number, dy: number, current: Facing): Facing {
-  if (Math.abs(dx) < 0.01 && Math.abs(dy) < 0.01) return current;
-  if (Math.abs(dx) > Math.abs(dy)) return dx > 0 ? "right" : "left";
-  return dy > 0 ? "down" : "up";
+  return { frames, idle };
 }
