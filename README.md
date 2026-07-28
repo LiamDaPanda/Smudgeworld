@@ -87,11 +87,21 @@ side-scrolling view the design doc asked for in the first place.
 
 ### Drawing
 
-The look is watercolour under ink — soft irregular washes with a sketchy
-outline drawn two or three times at falling opacity. `art2d.ts` has the
-primitives: wobbly closed blobs as smooth beziers, wash fills with pooled
-shade and a bleached highlight up-and-left, jittered ink loops, tapered
-strokes for anything with a length.
+The look is a doodle: confident, inaccurate lines. Three things do almost all
+of it, and they live in `art2d.ts`:
+
+- **`sketch()`** — a stroke that wanders off the shape and comes back, drawn
+  twice with a different wander each time, running past the ends. The wander
+  is two slow sine waves along the length, not per-point noise: noise reads as
+  a *shaky* line, and a doodle isn't shaky, it's confident and inaccurate.
+- **The wash is offset from the ink.** Colour that doesn't quite line up with
+  the outline is most of what reads as drawn by a person.
+- **`hatch()`** — parallel pen strokes for shadow, instead of a gradient.
+
+Around those: `unionOutline()` gives the silhouette of overlapping lobes as
+*points*, so a tree crown can be drawn as one hand-made line rather than as a
+pile of separately outlined blobs, and `blobPath()` builds wobbly closed
+shapes as smooth beziers.
 
 Every object is drawn once at load into an offscreen canvas (`sprites2d.ts`)
 with its origin at the point where it meets the ground, then blitted. A wood
@@ -137,7 +147,7 @@ src/
   main2d.ts     Game loop and glue.
   daynight2d.ts Time of day, as a colour wash.
   photo.ts      Photo mode: focus, framing, distance, develop, result card.
-  subjects.ts   Canvas-drawn illustration per subject.
+  subjects.ts   The eleven developed plates, drawn per subject.
   library.ts    Snapshots, sets, best-take bookkeeping.
   gear.ts       The seven camera upgrades and what they change.
   input.ts      Keyboard, mouse, touch joystick.

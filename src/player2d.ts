@@ -10,7 +10,7 @@
 // shade darker so the pairs separate, and a silhouette that says *photographer*
 // (brim forward, camera on the chest) rather than *person*.
 
-import { hexA, makeSprite, type Pt, type Sprite } from "./art2d.ts";
+import { hexA, makeSprite, seeded, sketch, type Pt, type Sprite } from "./art2d.ts";
 
 const INK = "#22201c";
 const SKIN = "#efe4cf";
@@ -105,6 +105,9 @@ function drawCamera(ctx: CanvasRenderingContext2D, x: number, y: number, s: numb
  * that stops a walk reading as a slide.
  */
 export function drawPlayerFrame(facing: Facing, phase: number, idle = false): Sprite {
+  // One stream per frame, so the hand-drawn wander is stable within a frame
+  // but differs between them — which is exactly how a flip-book looks.
+  const rand = seeded(1471 + Math.round(phase * 1000) + (idle ? 7 : 0));
   const p = phase * Math.PI * 2;
   const bob = idle ? 0 : Math.abs(Math.cos(p)) * 2.2;
   const flip = facing === "left";
@@ -135,17 +138,18 @@ export function drawPlayerFrame(facing: Facing, phase: number, idle = false): Sp
     ctx.beginPath(); ctx.arc(farHand[0], farHand[1], 3.2, 0, Math.PI * 2); ctx.fill();
 
     // --- Torso: a tapered slab leaning very slightly into the walk ---
-    ctx.fillStyle = SHIRT;
-    ctx.strokeStyle = INK;
-    ctx.lineWidth = 1.5;
+    const mid = (hipY + shoulderY) / 2;
+    const torso: Pt[] = [
+      [-7.5, hipY + 3], [-10, mid], [-8.8, shoulderY], [-1, shoulderY - 3],
+      [8.8, shoulderY + 0.6], [10, mid], [7, hipY + 3], [0, hipY + 4],
+    ];
     ctx.beginPath();
-    ctx.moveTo(-7.5, hipY + 3);
-    ctx.quadraticCurveTo(-10, (hipY + shoulderY) / 2, -8.8, shoulderY);
-    ctx.quadraticCurveTo(-1, shoulderY - 3, 8.8, shoulderY + 0.6);
-    ctx.quadraticCurveTo(10, (hipY + shoulderY) / 2, 7, hipY + 3);
+    ctx.moveTo(torso[0][0], torso[0][1]);
+    for (const q of torso.slice(1)) ctx.lineTo(q[0], q[1]);
     ctx.closePath();
+    ctx.fillStyle = SHIRT;
     ctx.fill();
-    ctx.stroke();
+    sketch(ctx, torso, rand, { closed: true, color: INK, width: 1.6, wobble: 0.8, alpha: 0.85, passes: 1 });
     // Belt
     ctx.strokeStyle = hexA(INK, 0.55);
     ctx.lineWidth = 2.6;
@@ -172,20 +176,20 @@ export function drawPlayerFrame(facing: Facing, phase: number, idle = false): Sp
     ctx.save();
     ctx.translate(1.5, headY);
     ctx.rotate(0.08);
-    ctx.fillStyle = SKIN;
-    ctx.strokeStyle = hexA(INK, 0.6);
-    ctx.lineWidth = 1.3;
+    const head: Pt[] = [
+      [-HEAD_R * 0.85, 0], [-HEAD_R * 0.86, -HEAD_R * 0.62], [-HEAD_R * 0.5, -HEAD_R * 0.98],
+      [0, -HEAD_R * 1.02], [HEAD_R * 0.6, -HEAD_R * 0.9], [HEAD_R * 0.86, -HEAD_R * 0.02],
+      [HEAD_R * 1.0, HEAD_R * 0.2],    // nose, small — any bigger and the
+      [HEAD_R * 0.76, HEAD_R * 0.32],  // profile reads as a beak
+      [HEAD_R * 0.62, HEAD_R * 0.8], [0, HEAD_R * 0.94], [-HEAD_R * 0.7, HEAD_R * 0.82],
+    ];
     ctx.beginPath();
-    ctx.moveTo(-HEAD_R * 0.85, 0);
-    ctx.quadraticCurveTo(-HEAD_R * 0.9, -HEAD_R, 0, -HEAD_R);
-    ctx.quadraticCurveTo(HEAD_R * 0.85, -HEAD_R, HEAD_R * 0.86, -HEAD_R * 0.02);
-    ctx.lineTo(HEAD_R * 1.0, HEAD_R * 0.2);   // nose, small — any bigger and
-    ctx.lineTo(HEAD_R * 0.76, HEAD_R * 0.32); // the profile reads as a beak
-    ctx.quadraticCurveTo(HEAD_R * 0.6, HEAD_R * 0.98, 0, HEAD_R * 0.94);
-    ctx.quadraticCurveTo(-HEAD_R * 0.82, HEAD_R * 0.86, -HEAD_R * 0.85, 0);
+    ctx.moveTo(head[0][0], head[0][1]);
+    for (const q of head.slice(1)) ctx.lineTo(q[0], q[1]);
     ctx.closePath();
+    ctx.fillStyle = SKIN;
     ctx.fill();
-    ctx.stroke();
+    sketch(ctx, head, rand, { closed: true, color: hexA(INK, 0.75), width: 1.4, wobble: 0.55, alpha: 0.9, passes: 1 });
     // Eye and a hint of jaw
     ctx.fillStyle = hexA(INK, 0.8);
     ctx.beginPath(); ctx.ellipse(HEAD_R * 0.42, -HEAD_R * 0.1, 1.2, 1.6, 0, 0, Math.PI * 2); ctx.fill();
