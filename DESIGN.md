@@ -24,10 +24,19 @@ The world itself stays smudged forever. The only clear images of these creatures
 
 A snapshot's **grade** is how sharp it develops:
 
-- Shutter timing against a pulsing focus ring, plus gear and condition bonuses,
-  set a **clarity percentage**.
+- Three axes set a **clarity percentage**: **focus** (shutter timing against a
+  pulsing ring), **framing** (keeping a drifting subject under the reticle) and
+  **distance** (how close you walked in), plus gear and condition bonuses.
+  Focus and framing are curved, so a shot with no skill in it grades low
+  instead of landing near the middle.
+- The viewfinder shows the subject at its *current* focus, blurred to whatever
+  the ring is worth this instant — tightening the ring is what brings the
+  smudge in, and the player watches it happen.
+- The result card breaks the grade into its three parts, so a bad plate says
+  which part to do differently.
 - A sloppy shot stays murky. A perfect one comes out razor sharp.
-- You can reshoot any smudge when it reappears.
+- You can reshoot any smudge when it reappears. **[built]** — a photographed
+  subject wanders back into its stretch of the park after a while.
 - Your library keeps the clearest take. Older takes become tradeable **spares**.
 - Every snapshot is stamped with the exact moment it was caught — provenance is part of the card.
 
@@ -61,12 +70,31 @@ Completing a set pays coins. Coins buy camera gear:
 |---|---|---|
 | Steady Grip | 120 | Focus ring pulses slower — easier to time |
 | Wide Lens | 220 | Spot smudges from half again as far |
+| Soft Soles | 260 | Subjects tolerate you far closer before they bolt |
 | Fast Shutter | 340 | The sharp part of the focus ring is wider |
+| Folding Tripod | 420 | The subject drifts much less in the frame |
 | Night Film | 480 | +12% clarity on every shot taken at night |
 | Fine Optics | 700 | +8% clarity on everything |
 
+Each item buys down one of the three grading axes or the approach, so no
+purchase is a flat number: Soft Soles changes how you walk up, the Tripod
+changes how you frame, the Grip and Shutter change how you time.
+
 Gear unlocking **deeper zones** with rarer smudges is **[planned]** — today it
 buys clarity and reach within the one park.
+
+## Subjects — [built]
+
+Smudges drift along their stretch of the park, and they are **skittish**.
+Running near one frightens it and it bolts to somewhere else; walking in is
+safe until you are almost on top of it, and standing still settles it. This is
+what makes the walk/run choice a decision rather than a speed setting, and it
+is the reason getting close — which the grade rewards — costs something.
+
+Timed subjects (After Dark) blink through a one-second window on a six-second
+cycle, night only. The window is shown plainly in the viewfinder while the
+camera is up: grading a window the player cannot see is a coin toss, not
+difficulty.
 
 ## The park — [built]
 
@@ -123,8 +151,9 @@ when the marketplace exists, not by a letter before it does.
   - Missed day-locked moments can be bought from someone who was there.
 - A small **transaction fee** fights inflation and doubles as revenue. **[planned]**
 - Scarcity comes from skill and the calendar — never loot odds. **[built]**, in
-  that nothing in the game is random-rolled: clarity is your timing and your
-  gear, and the only gate is the clock.
+  that nothing in the game is random-rolled: clarity is your timing, your
+  framing, how close you dared get and your gear, and the only gate is the
+  clock.
 
 ## Build order
 

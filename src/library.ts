@@ -179,6 +179,11 @@ export function getCapturedSubjects(): Set<string> {
   return new Set(bestBySubject.keys());
 }
 
+/** The best clarity on record for a subject, or null if never photographed. */
+export function bestClarityOf(name: string): number | null {
+  return bestBySubject.get(name)?.clarity ?? null;
+}
+
 export function openInventory() {
   const modal = document.getElementById("inventory-modal");
   if (!modal) return;

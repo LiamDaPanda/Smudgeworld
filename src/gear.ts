@@ -26,11 +26,25 @@ export const GEAR: GearItem[] = [
     effect: "Spot smudges from half again as far",
   },
   {
+    id: "soft-soles",
+    name: "Soft Soles",
+    cost: 260,
+    blurb: "Crepe rubber. Nothing hears you coming.",
+    effect: "Subjects tolerate you far closer before they bolt",
+  },
+  {
     id: "fast-shutter",
     name: "Fast Shutter",
     cost: 340,
     blurb: "Closes the instant you ask it to.",
     effect: "The sharp part of the focus ring is wider",
+  },
+  {
+    id: "tripod",
+    name: "Folding Tripod",
+    cost: 420,
+    blurb: "Three legs and a great deal of patience.",
+    effect: "The subject drifts much less in the frame",
   },
   {
     id: "night-film",
@@ -72,6 +86,21 @@ export function focusTolerance() {
 /** Proximity radius for the photograph prompt. Wide Lens extends it. */
 export function spotRadius() {
   return ownsGear("wide-lens") ? 5.25 : 3.5;
+}
+
+/**
+ * How far the subject wanders inside the viewfinder. The Tripod steadies it.
+ */
+export function driftScale() {
+  return ownsGear("tripod") ? 0.42 : 1;
+}
+
+/**
+ * Multiplier on how close you can get before a subject takes fright. Below 1
+ * means it lets you nearer — Soft Soles shrinks the ring it panics inside.
+ */
+export function calmScale() {
+  return ownsGear("soft-soles") ? 0.45 : 1;
 }
 
 /** Flat clarity bonuses from gear, as labelled entries for the result card. */
