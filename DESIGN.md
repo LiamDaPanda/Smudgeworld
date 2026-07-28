@@ -97,6 +97,24 @@ cycle, night only. The window is shown plainly in the viewfinder while the
 camera is up: grading a window the player cannot see is a coin toss, not
 difficulty.
 
+## Worlds and portals — [built]
+
+Four worlds — the park, a coast, a deep wood, a run of rooftops — joined in a
+loop by portals. A portal is a standing arch tinted with the ground colour of
+wherever it opens onto, so it previews as well as travels. Stepping through is
+a keypress, not a trigger volume: a portal you fall through by walking past
+would make the ends of a world unreachable and the subjects nearest the doors
+unphotographable.
+
+Worlds are data, not code. A world declares its sections, tree mixes,
+undergrowth, props, water, hills, sky wash, ground texture and subjects; the
+scene builder reads that. This is the point of the exercise — the second world
+is only worth walking to if it isn't the first with the greens swapped, so a
+coast has to be able to say "no trees, sand underfoot, ripples not grass" and
+a roof "no ground at all, tiles, chimneys".
+
+Gear unlocking deeper zones is **[planned]**; today every portal is open.
+
 ## The park — [built]
 
 One continuous 120x90 map, laid out as five places rather than an even

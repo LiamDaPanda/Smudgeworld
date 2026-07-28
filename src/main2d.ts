@@ -27,7 +27,8 @@ import {
   drawBackRise, drawGround, drawLayer, drawShadow, drawSky, drawWater, groundY,
   UNIT, worldToScreenX, type Camera,
 } from "./render2d.ts";
-import { buildScene2D, WORLD_W } from "./scene2d.ts";
+import { buildScene2D, type Scene2D } from "./scene2d.ts";
+import { START_WORLD, WORLDS } from "./worlds.ts";
 import {
   bakeSmudge, createSmudges2D, markCaptured, updateSmudges2D, type Smudge2D,
 } from "./smudges2d.ts";
@@ -49,13 +50,30 @@ function resize() {
 resize();
 window.addEventListener("resize", resize);
 
-const scene = buildScene2D();
 const playerArt = bakePlayer();
 const smudgeArt = bakeSmudge();
-const smudges = createSmudges2D(scene.sections);
 const input = createInput(canvas);
 
+// Worlds are built the first time you walk into them and then kept, so a
+// portal is instant on the way back and every subject you spooked is still
+// where you left it.
+const built = new Map<string, { scene: Scene2D; smudges: Smudge2D[] }>();
+function world(id: string) {
+  let w = built.get(id);
+  if (!w) {
+    const def = WORLDS[id] ?? WORLDS[START_WORLD];
+    const scene = buildScene2D(def);
+    built.set(id, (w = { scene, smudges: createSmudges2D(scene, def) }));
+  }
+  return w;
+}
+let current = world(START_WORLD);
+let scene = current.scene;
+let smudges = current.smudges;
+
 const player = { x: scene.spawn, vx: 0, facing: "right" as Facing, phase: 0 };
+let nearPortal: { x: number; to: string; name: string } | null = null;
+let portalCooldown = 0;
 const cam: Camera = { x: player.x };
 
 let coins = 0, snapshotCount = 0, xp = 0, time = 0;
@@ -112,7 +130,8 @@ function showToast(text: string, ms = 2400) {
 function saveGame() {
   try {
     localStorage.setItem(SAVE_KEY, JSON.stringify({
-      coins, snapshotCount, xp, gear: ownedGear(), library: serializeLibrary(),
+      coins, snapshotCount, xp, world: scene.id,
+      gear: ownedGear(), library: serializeLibrary(),
     }));
   } catch { /* storage unavailable */ }
 }
@@ -126,9 +145,17 @@ function loadGame() {
     xp = d.xp ?? 0;
     restoreGear(d.gear);
     restoreLibrary(d.library);
+    if (d.world && WORLDS[d.world] && d.world !== scene.id) {
+      current = world(d.world);
+      scene = current.scene;
+      smudges = current.smudges;
+      player.x = scene.spawn;
+      cam.x = player.x;
+    }
   } catch { /* corrupt save */ }
 }
 loadGame();
+paintWorldChip();
 updateHud();
 renderLibrary();
 
@@ -194,6 +221,65 @@ function watchForBolts() {
       fleeingNow.delete(s.id);
     }
   }
+}
+
+/**
+ * Portals. Standing in one and pressing F walks you through.
+ *
+ * Deliberately not automatic: a portal you fall through by walking past it
+ * would make the two ends of a world impossible to reach, and the subjects
+ * nearest the doors unphotographable.
+ */
+function updatePortals(dt: number) {
+  portalCooldown = Math.max(0, portalCooldown - dt);
+  let best: typeof nearPortal = null;
+  for (const p of scene.portals) {
+    if (Math.abs(p.x - player.x) < 2.8) { best = p; break; }
+  }
+  const changed = best?.to !== nearPortal?.to;
+  nearPortal = best;
+  const el = document.getElementById("portal-prompt");
+  if (changed) {
+    if (best) {
+      el?.classList.add("show");
+      const n = document.getElementById("portal-name");
+      if (n) n.textContent = best.name;
+      playNearby();
+    } else el?.classList.remove("show");
+  }
+}
+
+function travel(to: string) {
+  if (portalCooldown > 0) return;
+  const next = world(to);
+  current = next;
+  scene = next.scene;
+  smudges = next.smudges;
+  nearest = null;
+  lastChimed = null;
+  fleeingNow.clear();
+  document.getElementById("prox-prompt")?.classList.remove("show");
+  document.getElementById("portal-prompt")?.classList.remove("show");
+  nearPortal = null;
+
+  // Arrive beside the door back, not on top of it — otherwise the first press
+  // of F on the far side sends you straight home again.
+  const back = scene.portals.find((p) => p.to === current.scene.id) ?? scene.portals[0];
+  const home = scene.portals.find((p) => p.x < scene.width / 2) ?? back;
+  player.x = home ? Math.min(scene.width - 3, home.x + 4) : scene.spawn;
+  player.vx = 0;
+  cam.x = player.x;
+  portalCooldown = 0.8;
+
+  playSuccess();
+  showToast(`${scene.name} — ${scene.blurb}`, 3400);
+  paintWorldChip();
+  saveGame();
+}
+
+function paintWorldChip() {
+  const el = document.getElementById("world-val");
+  if (el) el.textContent = scene.name;
 }
 
 function tipOnce(key: string, text: string) {
@@ -270,6 +356,9 @@ function setPaused(v: boolean) {
   document.getElementById("pause-overlay")?.classList.toggle("open", v);
 }
 document.getElementById("pause-resume")?.addEventListener("click", () => setPaused(false));
+document.getElementById("portal-go")?.addEventListener("click", () => {
+  if (nearPortal) travel(nearPortal.to);
+});
 
 window.addEventListener("keydown", (e) => {
   if (e.key === "i" || e.key === "I") openInventory();
@@ -282,6 +371,9 @@ window.addEventListener("keydown", (e) => {
     else if (gameActive) setPaused(!paused);
   }
   if ((e.key === "e" || e.key === "E") && gameActive && !isPhotoModeActive() && nearest) launchPhoto();
+  if ((e.key === "f" || e.key === "F") && gameActive && !isPhotoModeActive() && nearPortal) {
+    travel(nearPortal.to);
+  }
 });
 
 const menu = document.getElementById("menu-overlay");
@@ -319,7 +411,7 @@ function updatePlayer(dt: number) {
     if (Math.abs(next - b.x) < b.r && Math.abs(player.x - b.x) >= b.r) { blocked = true; break; }
   }
   if (!blocked) player.x = next;
-  player.x = Math.max(2, Math.min(WORLD_W - 2, player.x));
+  player.x = Math.max(2, Math.min(scene.width - 2, player.x));
 
   if (ix !== 0) player.facing = ix > 0 ? "right" : "left";
   player.phase = (player.phase + Math.abs(player.vx) * dt * 0.22) % 1;
@@ -338,6 +430,16 @@ function render(gait: number) {
 
   const sky = skyPalette();
   drawSky(ctx, vw, vh, sky.top, sky.mid, sky.horizon);
+  // Each world colours its own sky over the top of the clock's, so a coast at
+  // noon and a wood at noon aren't the same blue but both still go dark.
+  if (scene.skyTint) {
+    ctx.save();
+    ctx.globalCompositeOperation = "multiply";
+    ctx.globalAlpha = scene.skyTint.alpha;
+    ctx.fillStyle = scene.skyTint.hex;
+    ctx.fillRect(0, 0, vw, groundY(vh));
+    ctx.restore();
+  }
   drawGround(ctx, scene, cam, vw, vh);
 
   scene.layers.forEach((layer, i) => {
@@ -411,6 +513,7 @@ function frame(now: number) {
     const gait = gameActive && !isPhotoModeActive() ? updatePlayer(dt) : 0;
     updateSmudges2D(smudges, time, night, isPhotoModeActive() ? nearest : null, {
       playerX: player.x,
+      width: scene.width,
       sprinting: input.sprint && gait > 0.4,
       calm: calmScale(),
     }, dt);
@@ -420,11 +523,12 @@ function frame(now: number) {
     // you're going than where you've been, and it clamps at the map's ends.
     const half = vw / (2 * UNIT);
     const lead = player.vx * 0.22;
-    const target = Math.max(half, Math.min(WORLD_W - half, player.x + lead));
+    const target = Math.max(half, Math.min(Math.max(half, scene.width - half), player.x + lead));
     cam.x += (target - cam.x) * (1 - Math.exp(-7 * dt));
 
     if (gameActive && !isPhotoModeActive()) {
       updateProximity();
+      updatePortals(dt);
       if (input.consumePhoto()) launchPhoto();
     } else if (isPhotoModeActive()) {
       // Drain it: Space fires the shutter *and* sets the world's photo flag, so
@@ -436,8 +540,8 @@ function frame(now: number) {
     updateClockHud();
     const walking = gait > 0.4;
     const w = scene.water[0];
-    const pondD = player.x > w.from && player.x < w.to
-      ? 0
+    const pondD = !w ? 999
+      : player.x > w.from && player.x < w.to ? 0
       : Math.min(Math.abs(player.x - w.from), Math.abs(player.x - w.to));
     updateAudio(dt, { waterDistance: pondD, walking, strideHz: input.sprint ? 3.1 : 2.0, night });
     updateFootsteps(dt, walking, input.sprint ? 3.1 : 2.0);
@@ -474,4 +578,8 @@ window.addEventListener("beforeunload", saveGame);
   setAim,
   plate: (name: string) => subjectIllustration(name),
   skipTime: (n: number) => { time += n; },
+  worldId: () => scene.id,
+  worldList: () => Object.keys(WORLDS),
+  goWorld: (id: string) => { portalCooldown = 0; travel(id); },
+  portals: () => scene.portals.map((p) => ({ x: p.x, to: p.to })),
 };
