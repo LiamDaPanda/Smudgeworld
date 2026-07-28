@@ -159,7 +159,24 @@ export function inkLoop(
   ctx.restore();
 }
 
-/** A tapered stroke — trunks, boughs, limbs, stems. */
+/** Blend two hex colours; t=0 is a, t=1 is b. */
+export function mixHex(a: string, b: string, t: number): string {
+  const p = (h: string) => [
+    parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16),
+  ];
+  const [r1, g1, b1] = p(a);
+  const [r2, g2, b2] = p(b);
+  const c = (x: number, y: number) => Math.round(x + (y - x) * t).toString(16).padStart(2, "0");
+  return `#${c(r1, r2)}${c(g1, g2)}${c(b1, b2)}`;
+}
+
+/**
+ * A tapered stroke — trunks, boughs, limbs, stems.
+ *
+ * Lit across its width rather than filled flat, and outlined with one soft
+ * line instead of a jittered ink loop: a trunk is a cylinder, and three
+ * wobbling passes of near-black around it read as a sticker of a trunk.
+ */
 export function taperedStroke(
   ctx: CanvasRenderingContext2D,
   spine: Pt[],
@@ -189,11 +206,23 @@ export function taperedStroke(
   ctx.closePath();
   const xs = outline.map((p) => p[0]);
   const ys = outline.map((p) => p[1]);
-  washFill(ctx, fill, rand, {
-    x: Math.min(...xs) - 2, y: Math.min(...ys) - 2,
-    w: Math.max(...xs) - Math.min(...xs) + 4, h: Math.max(...ys) - Math.min(...ys) + 4,
-  }, { pools: 3 });
-  if (ink) inkLoop(ctx, outline, rand, { width: 1.3, passes: 2, jitter: 0.9 });
+  const x0 = Math.min(...xs), x1 = Math.max(...xs);
+  const g = ctx.createLinearGradient(x0, 0, x1, 0);
+  g.addColorStop(0, mixHex(fill, "#fbf7e6", 0.34));
+  g.addColorStop(0.42, fill);
+  g.addColorStop(1, mixHex(fill, "#2c2519", 0.42));
+  ctx.save();
+  ctx.fillStyle = g;
+  ctx.fill();
+  if (ink) {
+    ctx.strokeStyle = hexA(mixHex(fill, "#2c2519", 0.6), 0.5);
+    ctx.lineWidth = 1.2;
+    ctx.lineJoin = "round";
+    ctx.stroke();
+  }
+  ctx.restore();
+  void ys;
+  void rand;
   return outline;
 }
 
@@ -240,6 +269,96 @@ export function scribble(
     ctx.stroke();
   }
   ctx.restore();
+}
+
+export interface Bounds { x: number; y: number; w: number; h: number }
+
+// Scratch canvases, reused across every bake so a park's worth of merged forms
+// doesn't allocate a park's worth of canvases.
+const scratch: { c: HTMLCanvasElement; x: CanvasRenderingContext2D }[] = [];
+function pad(i: number, w: number, h: number): CanvasRenderingContext2D {
+  let s = scratch[i];
+  if (!s) {
+    const c = document.createElement("canvas");
+    s = scratch[i] = { c, x: c.getContext("2d")! };
+  }
+  if (s.c.width < w || s.c.height < h) {
+    s.c.width = Math.max(s.c.width, w);
+    s.c.height = Math.max(s.c.height, h);
+  }
+  s.x.setTransform(1, 0, 0, 1, 0, 0);
+  s.x.globalAlpha = 1;
+  s.x.globalCompositeOperation = "source-over";
+  s.x.clearRect(0, 0, s.c.width, s.c.height);
+  return s.x;
+}
+
+/**
+ * Draw several overlapping shapes as ONE form: a union fill, shading that runs
+ * across the whole mass, and a single outline around the outside.
+ *
+ * This is the difference between a tree and a heap of potatoes. Drawing lobes
+ * one at a time — each with its own outline — leaves every internal seam
+ * visible, so the eye reads a pile of separate outlined objects instead of a
+ * mass of foliage. Here the lobes are filled into an offscreen canvas where
+ * overlap merges them for free, shading is composited `source-atop` so it can
+ * cross lobe boundaries, and the outline is the silhouette of the union,
+ * stamped around a small circle of offsets.
+ */
+export function mergedForm(
+  ctx: CanvasRenderingContext2D,
+  bounds: Bounds,
+  shapes: (c: CanvasRenderingContext2D) => void,
+  opts: {
+    line?: string;
+    lineWidth?: number;
+    lineAlpha?: number;
+    shade?: (c: CanvasRenderingContext2D, b: Bounds) => void;
+  } = {}
+) {
+  const lw = opts.lineWidth ?? 1.5;
+  const m = Math.ceil(lw + 4);
+  const W = Math.ceil(bounds.w) + m * 2;
+  const H = Math.ceil(bounds.h) + m * 2;
+  if (W <= 0 || H <= 0) return;
+
+  const form = pad(0, W, H);
+  form.translate(m - bounds.x, m - bounds.y);
+  shapes(form);
+  if (opts.shade) {
+    // Clipped to the union by composition rather than by a path, so the shade
+    // can be any shape at all and still never leak past the silhouette.
+    form.globalCompositeOperation = "source-atop";
+    opts.shade(form, bounds);
+    form.globalCompositeOperation = "source-over";
+  }
+
+  const dx = bounds.x - m;
+  const dy = bounds.y - m;
+
+  if (opts.line) {
+    const ink = pad(1, W, H);
+    ink.drawImage(form.canvas, 0, 0, W, H, 0, 0, W, H);
+    ink.globalCompositeOperation = "source-in";
+    ink.fillStyle = opts.line;
+    ink.fillRect(0, 0, W, H);
+
+    // Build the ring at full opacity in its own buffer: stamping N offsets
+    // straight onto the target with alpha would pile up where they overlap and
+    // give a line that's dark at the corners and thin on the flats.
+    const ring = pad(2, W, H);
+    const N = 16;
+    for (let i = 0; i < N; i++) {
+      const a = (i / N) * Math.PI * 2;
+      ring.drawImage(ink.canvas, 0, 0, W, H,
+        Math.cos(a) * lw, Math.sin(a) * lw, W, H);
+    }
+    ctx.save();
+    ctx.globalAlpha = opts.lineAlpha ?? 1;
+    ctx.drawImage(ring.canvas, 0, 0, W, H, dx, dy, W, H);
+    ctx.restore();
+  }
+  ctx.drawImage(form.canvas, 0, 0, W, H, dx, dy, W, H);
 }
 
 /** An offscreen canvas with its origin at the object's ground contact point. */

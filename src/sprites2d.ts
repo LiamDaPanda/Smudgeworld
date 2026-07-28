@@ -7,54 +7,102 @@
 // position and sort by depth without knowing anything about what it is.
 
 import {
-  BAKE_PX, blobPath, hexA, inkLoop, makeSprite, scribble, seeded, smooth,
-  taperedStroke, washFill, type Pt, type Sprite,
+  BAKE_PX, blobPath, hexA, inkLoop, makeSprite, mergedForm, mixHex, scribble,
+  seeded, smooth, taperedStroke, washFill, type Pt, type Sprite,
 } from "./art2d.ts";
 
-const INK = "#2b2b2b";
+// Warm charcoal rather than near-black. A true black line at a uniform weight
+// is most of what makes flat 2D read as clip art; every outline in here is a
+// dark relative of the colour it surrounds, thin, and partly transparent.
+const INK = "#3a352c";
 
-/** Blend two hex colours; t=0 is a, t=1 is b. */
-function mixHex(a: string, b: string, t: number): string {
-  const p = (h: string) => [
-    parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16),
-  ];
-  const [r1, g1, b1] = p(a);
-  const [r2, g2, b2] = p(b);
-  const c = (x: number, y: number) => Math.round(x + (y - x) * t).toString(16).padStart(2, "0");
-  return `#${c(r1, r2)}${c(g1, g2)}${c(b1, b2)}`;
+export interface Lobe { x: number; y: number; rx: number; ry: number }
+
+/**
+ * Foliage: however many lobes you hand it, drawn as one mass.
+ *
+ * The lobes still exist — they're what stops a crown reading as one smooth
+ * egg — but they show up as soft shading inside a single silhouette rather
+ * than as separate outlined blobs. Light comes from the upper left across the
+ * whole form, not per lobe, which is the other half of why this reads as
+ * volume instead of stickers.
+ */
+function foliageMass(
+  ctx: CanvasRenderingContext2D,
+  lobes: Lobe[],
+  hex: string, shade: string, rand: () => number,
+  opts: { line?: number; texture?: number } = {}
+) {
+  if (!lobes.length) return;
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  const wob = lobes.map(() => ({
+    n: 2 + Math.floor(rand() * 3),
+    p: rand() * Math.PI * 2,
+  }));
+  for (const l of lobes) {
+    x0 = Math.min(x0, l.x - l.rx * 1.2); x1 = Math.max(x1, l.x + l.rx * 1.2);
+    y0 = Math.min(y0, l.y - l.ry * 1.2); y1 = Math.max(y1, l.y + l.ry * 1.2);
+  }
+  const b = { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+  const lit = mixHex(hex, "#f4f2d6", 0.42);
+
+  mergedForm(ctx, b, (c) => {
+    c.fillStyle = hex;
+    lobes.forEach((l, i) => {
+      blobPath(c, l.x, l.y, l.rx, l.ry, 16, (_j, t) =>
+        1 + Math.sin(t * Math.PI * 2 * wob[i].n + wob[i].p) * 0.12
+          + Math.sin(t * Math.PI * 2 * 7 + wob[i].p) * 0.035);
+      c.fill();
+    });
+  }, {
+    line: mixHex(shade, INK, 0.45),
+    lineWidth: opts.line ?? 1.5,
+    lineAlpha: 0.5,
+    shade: (c) => {
+      // One light across the whole mass.
+      const g = c.createLinearGradient(b.x, b.y, b.x + b.w * 0.5, b.y + b.h);
+      g.addColorStop(0, hexA(lit, 0.5));
+      g.addColorStop(0.42, hexA(lit, 0));
+      g.addColorStop(1, hexA(shade, 0.55));
+      c.fillStyle = g;
+      c.fillRect(b.x, b.y, b.w, b.h);
+      // Then each lobe as a soft bloom and a soft underside — radial, so there
+      // is no edge anywhere and the lobes read as one surface rolling over.
+      for (const l of lobes) {
+        const r = Math.max(l.rx, l.ry);
+        const bloom = c.createRadialGradient(
+          l.x - l.rx * 0.3, l.y - l.ry * 0.42, r * 0.05,
+          l.x - l.rx * 0.3, l.y - l.ry * 0.42, r * 1.05
+        );
+        bloom.addColorStop(0, hexA(lit, 0.34));
+        bloom.addColorStop(1, hexA(lit, 0));
+        c.fillStyle = bloom;
+        c.fillRect(b.x, b.y, b.w, b.h);
+        const under = c.createRadialGradient(
+          l.x + l.rx * 0.2, l.y + l.ry * 0.95, r * 0.1,
+          l.x + l.rx * 0.2, l.y + l.ry * 0.95, r * 0.95
+        );
+        under.addColorStop(0, hexA(shade, 0.4));
+        under.addColorStop(1, hexA(shade, 0));
+        c.fillStyle = under;
+        c.fillRect(b.x, b.y, b.w, b.h);
+      }
+      // Leaf texture, kept faint — at full strength it just reads as dirt.
+      for (const l of lobes) {
+        scribble(c, l.x, l.y, l.rx * 0.8, l.ry * 0.8,
+          Math.round(l.rx * (opts.texture ?? 0.7)), hexA(shade, 0.5), rand, 4);
+      }
+    },
+  });
 }
 
-/** Foliage mass: a lumpy blob with scribbled texture and a lit upper-left. */
+/** One lobe, for the places that only want a single soft mass. */
 function canopy(
   ctx: CanvasRenderingContext2D,
   cx: number, cy: number, rx: number, ry: number,
   hex: string, shade: string, rand: () => number
 ) {
-  // Low-frequency radius variation: a few big lobes, not a crinkled edge.
-  const lobes = 2 + Math.floor(rand() * 3);
-  const phase = rand() * Math.PI * 2;
-  const pts = blobPath(ctx, cx, cy, rx, ry, 14, (_i, t) =>
-    1 + Math.sin(t * Math.PI * 2 * lobes + phase) * 0.13 + Math.sin(t * Math.PI * 2 * 7) * 0.04
-  );
-  washFill(ctx, hex, rand, { x: cx - rx * 1.4, y: cy - ry * 1.4, w: rx * 2.8, h: ry * 2.8 }, {
-    pools: 5, shade, light: "#f2f0d8",
-  });
-  // Shade pooled along the underside, which is what gives a flat blob volume.
-  ctx.save();
-  const p2 = blobPath(ctx, cx, cy, rx, ry, 14, (_i, t) =>
-    1 + Math.sin(t * Math.PI * 2 * lobes + phase) * 0.13 + Math.sin(t * Math.PI * 2 * 7) * 0.04
-  );
-  void p2;
-  ctx.clip();
-  const g = ctx.createLinearGradient(cx, cy - ry, cx, cy + ry);
-  g.addColorStop(0, hexA(shade, 0));
-  g.addColorStop(1, hexA(shade, 0.42));
-  ctx.fillStyle = g;
-  ctx.fillRect(cx - rx * 1.4, cy - ry * 1.4, rx * 2.8, ry * 2.8);
-  ctx.restore();
-
-  scribble(ctx, cx, cy, rx * 0.85, ry * 0.85, Math.round(rx * 1.4), hexA(shade, 1), rand, 4);
-  inkLoop(ctx, pts, rand, { width: 1.7, passes: 3, jitter: 1.3 });
+  foliageMass(ctx, [{ x: cx, y: cy, rx, ry }], hex, shade, rand);
 }
 
 export type TreeKind = "mixed" | "birch" | "snag" | "willow" | "ornamental" | "conifer";
@@ -69,7 +117,7 @@ const LEAF: Record<string, [string, string]> = {
 const BLOSSOM: [string, string] = ["#e3b6c6", "#b98a9c"];
 const BARK: Record<string, [string, string]> = {
   mixed: ["#8a7154", "#5d4a34"],
-  birch: ["#ded9c6", "#9a9280"],
+  birch: ["#cdc7b2", "#8f8878"],
   snag: ["#9c9384", "#6d6558"],
   willow: ["#7f6b51", "#54452f"],
   ornamental: ["#8d7458", "#5e4b36"],
@@ -97,21 +145,15 @@ export function drawTree(kind: TreeKind, scale: number, seed: number): Sprite {
       // Trunk visible between the skirts.
       taperedStroke(ctx, smooth([[0, 0], [0, -h * 0.9]], 6),
         (t) => h * 0.055 * (1 - t * 0.6), barkHex, rand);
+      // The skirts are one tree, not a stack of separate discs.
       const tiers = 5 + Math.floor(rand() * 2);
+      const skirts: Lobe[] = [];
       for (let i = tiers - 1; i >= 0; i--) {
         const f = i / (tiers - 1);
-        const y = -h * (0.16 + f * 0.78);
         const r = h * (0.34 - f * 0.24) * (0.9 + rand() * 0.2);
-        // A drooping skirt: wide, shallow, dipping at the edges.
-        const pts = blobPath(ctx, 0, y, r, r * 0.34, 12, (_i, t) => {
-          const a = t * Math.PI * 2;
-          return Math.sin(a) > 0 ? 1.1 : 0.82; // heavier below than above
-        });
-        washFill(ctx, leafHex, rand, { x: -r * 1.3, y: y - r, w: r * 2.6, h: r * 2 },
-          { pools: 3, shade: leafShade, light: "#e9edc9" });
-        scribble(ctx, 0, y, r * 0.8, r * 0.28, Math.round(r * 0.5), hexA(leafShade, 1), rand, 4);
-        inkLoop(ctx, pts, rand, { width: 1.5, passes: 2, jitter: 1.1 });
+        skirts.push({ x: 0, y: -h * (0.16 + f * 0.78), rx: r, ry: r * 0.4 });
       }
+      foliageMass(ctx, skirts, leafHex, leafShade, rand, { line: 1.3, texture: 0.45 });
       return;
     }
 
@@ -164,19 +206,21 @@ export function drawTree(kind: TreeKind, scale: number, seed: number): Sprite {
     taperedStroke(ctx, spine, (t) => h * (kind === "birch" ? 0.05 : 0.08) * (1 - t * 0.42), barkHex, rand);
 
     // Root flare: two short splays at the foot, the thing that stops a trunk
-    // reading as a stick pushed into the ground.
+    // reading as a stick pushed into the ground. Drawn in the trunk's own
+    // colour — in the shade tone they separated from the trunk and read as a
+    // pair of dark claws rather than as the bottom of it.
     for (const side of [-1, 1]) {
       taperedStroke(ctx, smooth([
-        [side * h * 0.012, -h * 0.03],
-        [side * h * 0.045, -h * 0.012],
-        [side * h * 0.075, 0],
-      ], 4), (t) => h * 0.03 * (1 - t * 0.6), barkShade, rand, false);
+        [side * h * 0.01, -h * 0.045],
+        [side * h * 0.038, -h * 0.014],
+        [side * h * 0.062, 0],
+      ], 5), (t) => h * 0.028 * (1 - t * 0.72), barkHex, rand, false);
     }
 
     if (kind === "birch") {
       ctx.save();
-      ctx.strokeStyle = hexA(INK, 0.65);
-      ctx.lineWidth = 1.6;
+      ctx.strokeStyle = hexA(INK, 0.34);
+      ctx.lineWidth = 1.3;
       for (let i = 0; i < 9; i++) {
         const t = rand();
         const p = spine[Math.floor(t * (spine.length - 1))];
@@ -216,13 +260,11 @@ export function drawTree(kind: TreeKind, scale: number, seed: number): Sprite {
       });
     }
     lobes.sort((a, b) => a.y - b.y);
-    lobes.forEach((l, i) => {
-      // Further lobes sit a shade darker, which is most of what sells depth
-      // in a flat drawing.
-      const f = i / Math.max(1, lobes.length - 1);
-      const lit = mixHex(leafShade, leafHex, 0.35 + f * 0.65);
-      canopy(ctx, l.x, l.y, l.r, l.r * 0.84, lit, leafShade, rand);
-    });
+    foliageMass(
+      ctx,
+      lobes.map((l) => ({ x: l.x, y: l.y, rx: l.r, ry: l.r * 0.84 })),
+      leafHex, leafShade, rand
+    );
   });
 }
 
@@ -230,8 +272,10 @@ export function drawBush(seed: number, scale = 1): Sprite {
   const rand = seeded(seed);
   const w = 54 * scale, h = 42 * scale;
   return makeSprite(w * 1.3, h * 1.5, w * 0.65, h * 1.15, (ctx) => {
-    canopy(ctx, 0, -h * 0.42, w * 0.42, h * 0.42, "#6f8c52", "#41562f", rand);
-    canopy(ctx, w * 0.2, -h * 0.28, w * 0.26, h * 0.28, "#7b9a5c", "#41562f", rand);
+    foliageMass(ctx, [
+      { x: 0, y: -h * 0.42, rx: w * 0.42, ry: h * 0.42 },
+      { x: w * 0.2, y: -h * 0.28, rx: w * 0.26, ry: h * 0.28 },
+    ], "#6f8c52", "#41562f", rand, { line: 1.3 });
   });
 }
 
@@ -239,25 +283,35 @@ export function drawRock(seed: number, scale = 1): Sprite {
   const rand = seeded(seed);
   const w = 46 * scale, h = 34 * scale;
   return makeSprite(w * 1.4, h * 1.8, w * 0.7, h * 1.25, (ctx) => {
-    // Few lobes, flat base: stone is planes meeting at corners.
-    const pts = blobPath(ctx, 0, -h * 0.34, w * 0.44, h * 0.4, 8, (i) =>
-      i % 3 === 0 ? 1.14 : 0.86 + rand() * 0.12
-    );
-    washFill(ctx, "#a9a296", rand, { x: -w, y: -h * 1.2, w: w * 2, h: h * 1.8 },
-      { pools: 4, shade: "#6f695f", light: "#efece2" });
-    inkLoop(ctx, pts, rand, { width: 1.7, passes: 3, jitter: 1.2 });
-    // Two cracks, following the form rather than crossing it.
-    ctx.save();
-    ctx.strokeStyle = hexA("#5b554c", 0.5);
-    ctx.lineWidth = 1.2;
-    for (let i = 0; i < 2; i++) {
-      ctx.beginPath();
-      const x0 = -w * 0.25 + rand() * w * 0.4;
-      ctx.moveTo(x0, -h * 0.6);
-      ctx.quadraticCurveTo(x0 + (rand() - 0.5) * 10, -h * 0.35, x0 + (rand() - 0.5) * 16, -h * 0.08);
-      ctx.stroke();
-    }
-    ctx.restore();
+    // Few lobes, flat base: stone is planes meeting at corners. Even so the
+    // form gets one smooth gradient rather than a jittered ink loop — the
+    // wobble belongs in the silhouette, not in the line drawn round it.
+    const b = { x: -w * 0.6, y: -h * 0.8, w: w * 1.2, h: h * 0.85 };
+    mergedForm(ctx, b, (c) => {
+      c.fillStyle = "#a9a296";
+      blobPath(c, 0, -h * 0.34, w * 0.44, h * 0.4, 9, (i) =>
+        i % 3 === 0 ? 1.12 : 0.87 + rand() * 0.1);
+      c.fill();
+    }, {
+      line: "#5f5a51", lineWidth: 1.4, lineAlpha: 0.5,
+      shade: (c) => {
+        const g = c.createLinearGradient(b.x, b.y, b.x + b.w * 0.6, b.y + b.h);
+        g.addColorStop(0, hexA("#eeebe1", 0.55));
+        g.addColorStop(0.45, hexA("#eeebe1", 0));
+        g.addColorStop(1, hexA("#6f695f", 0.5));
+        c.fillStyle = g;
+        c.fillRect(b.x, b.y, b.w, b.h);
+        c.strokeStyle = hexA("#5b554c", 0.28);
+        c.lineWidth = 1.1;
+        for (let i = 0; i < 2; i++) {
+          const x0 = -w * 0.25 + rand() * w * 0.4;
+          c.beginPath();
+          c.moveTo(x0, -h * 0.6);
+          c.quadraticCurveTo(x0 + (rand() - 0.5) * 10, -h * 0.35, x0 + (rand() - 0.5) * 16, -h * 0.08);
+          c.stroke();
+        }
+      },
+    });
   });
 }
 
@@ -335,14 +389,26 @@ export function drawHedge(seed: number): Sprite {
     pts.push([w / 2 + jag(), 0]);
     for (let i = 8; i >= 0; i--) pts.push([-w / 2 + (i / 8) * w + jag(), jag() * 0.4]);
     pts.push([-w / 2 + jag(), -h * 0.5]);
-    ctx.beginPath();
-    ctx.moveTo(pts[0][0], pts[0][1]);
-    for (const p of pts.slice(1)) ctx.lineTo(p[0], p[1]);
-    ctx.closePath();
-    washFill(ctx, "#5f7f4a", rand, { x: -w, y: -h * 1.4, w: w * 2, h: h * 2 },
-      { pools: 5, shade: "#33421f", light: "#cfe0a8" });
-    scribble(ctx, 0, -h * 0.5, w * 0.46, h * 0.42, 60, hexA("#33421f", 1), rand, 4);
-    inkLoop(ctx, pts, rand, { width: 1.5, passes: 2, jitter: 0.9 });
+    const b = { x: -w * 0.6, y: -h * 1.1, w: w * 1.2, h: h * 1.2 };
+    mergedForm(ctx, b, (c) => {
+      c.fillStyle = "#5f7f4a";
+      c.beginPath();
+      c.moveTo(pts[0][0], pts[0][1]);
+      for (const p of pts.slice(1)) c.lineTo(p[0], p[1]);
+      c.closePath();
+      c.fill();
+    }, {
+      line: "#3d4d2a", lineWidth: 1.3, lineAlpha: 0.5,
+      shade: (c) => {
+        const g = c.createLinearGradient(b.x, b.y, b.x + b.w * 0.5, b.y + b.h);
+        g.addColorStop(0, hexA("#cfe0a8", 0.5));
+        g.addColorStop(0.45, hexA("#cfe0a8", 0));
+        g.addColorStop(1, hexA("#33421f", 0.52));
+        c.fillStyle = g;
+        c.fillRect(b.x, b.y, b.w, b.h);
+        scribble(c, 0, -h * 0.5, w * 0.46, h * 0.42, 50, hexA("#33421f", 0.45), rand, 4);
+      },
+    });
   });
 }
 
@@ -393,7 +459,7 @@ export function drawBench(seed: number): Sprite {
       ctx.closePath();
       washFill(ctx, "#c39a63", rand, { x: x0 - 4, y: Math.min(y0, y1) - t - 4, w: x1 - x0 + 8, h: Math.abs(y1 - y0) + t * 2 + 8 },
         { pools: 2, shade: "#8a6438" });
-      inkLoop(ctx, pts, rand, { width: 1.3, passes: 2, jitter: 0.7 });
+      inkLoop(ctx, pts, rand, { width: 1.1, passes: 1, jitter: 0.4, color: INK });
     };
     // Legs first, then seat, then back — painter's order within the sprite.
     ctx.strokeStyle = INK;
@@ -430,7 +496,7 @@ export function drawLamp(seed: number): Sprite {
     for (const p of pts.slice(1)) ctx.lineTo(p[0], p[1]);
     ctx.closePath();
     washFill(ctx, "#4a4f55", rand, { x: -12, y: -h - 20, w: 24, h: 24 }, { pools: 2, shade: "#23262a" });
-    inkLoop(ctx, pts, rand, { width: 1.4, passes: 2, jitter: 0.6 });
+    inkLoop(ctx, pts, rand, { width: 1.1, passes: 1, jitter: 0.4, color: INK });
     ctx.fillStyle = hexA("#f6e6b4", 0.9);
     ctx.beginPath();
     ctx.ellipse(0, -h - 8, 5, 6, 0, 0, Math.PI * 2);
@@ -450,7 +516,7 @@ export function drawCairn(seed: number): Sprite {
       const rh = 5 + rand() * 3;
       const pts = blobPath(ctx, (rand() - 0.5) * 3, y - rh, rw, rh, 7, () => 0.9 + rand() * 0.2);
       washFill(ctx, "#a49d92", rand, { x: -20, y: y - 16, w: 40, h: 20 }, { pools: 2, shade: "#6f695f" });
-      inkLoop(ctx, pts, rand, { width: 1.3, passes: 2, jitter: 0.8 });
+      inkLoop(ctx, pts, rand, { width: 1.1, passes: 1, jitter: 0.4, color: INK });
       y -= rh * 1.85;
     }
   });
@@ -469,7 +535,7 @@ export function drawLog(seed: number): Sprite {
     for (const p of pts.slice(1)) ctx.lineTo(p[0], p[1]);
     ctx.closePath();
     washFill(ctx, "#8b7355", rand, { x: -w, y: -20, w: w * 2, h: 26 }, { pools: 3, shade: "#59452c" });
-    inkLoop(ctx, pts, rand, { width: 1.4, passes: 2, jitter: 0.8 });
+    inkLoop(ctx, pts, rand, { width: 1.1, passes: 1, jitter: 0.4, color: INK });
     // Moss along the top
     ctx.save();
     ctx.strokeStyle = hexA("#4d6b34", 0.9);
@@ -485,6 +551,6 @@ export function drawLog(seed: number): Sprite {
     // End grain
     const end = blobPath(ctx, w / 2, -7, 5, 7, 8, () => 0.95 + rand() * 0.1);
     washFill(ctx, "#a58a63", rand, { x: w / 2 - 8, y: -16, w: 16, h: 18 }, { pools: 1, shade: "#6d5738" });
-    inkLoop(ctx, end, rand, { width: 1.1, passes: 2, jitter: 0.6 });
+    inkLoop(ctx, end, rand, { width: 1.1, passes: 1, jitter: 0.4, color: INK });
   });
 }
