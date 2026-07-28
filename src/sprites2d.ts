@@ -7,8 +7,8 @@
 // position and sort by depth without knowing anything about what it is.
 
 import {
-  BAKE_PX, blobPath, hexA, inkLoop, makeSprite, mergedForm, mixHex, scribble,
-  seeded, smooth, taperedStroke, washFill, type Pt, type Sprite,
+  BAKE_PX, blobPath, hatch, hexA, makeSprite, mixHex, scribble, seeded, sketch,
+  smooth, taperedStroke, tracePath, unionOutline, washFill, type Pt, type Sprite,
 } from "./art2d.ts";
 
 // Warm charcoal rather than near-black. A true black line at a uniform weight
@@ -35,10 +35,6 @@ function foliageMass(
 ) {
   if (!lobes.length) return;
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
-  const wob = lobes.map(() => ({
-    n: 2 + Math.floor(rand() * 3),
-    p: rand() * Math.PI * 2,
-  }));
   for (const l of lobes) {
     x0 = Math.min(x0, l.x - l.rx * 1.2); x1 = Math.max(x1, l.x + l.rx * 1.2);
     y0 = Math.min(y0, l.y - l.ry * 1.2); y1 = Math.max(y1, l.y + l.ry * 1.2);
@@ -46,53 +42,50 @@ function foliageMass(
   const b = { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
   const lit = mixHex(hex, "#f4f2d6", 0.42);
 
-  mergedForm(ctx, b, (c) => {
-    c.fillStyle = hex;
-    lobes.forEach((l, i) => {
-      blobPath(c, l.x, l.y, l.rx, l.ry, 16, (_j, t) =>
-        1 + Math.sin(t * Math.PI * 2 * wob[i].n + wob[i].p) * 0.12
-          + Math.sin(t * Math.PI * 2 * 7 + wob[i].p) * 0.035);
-      c.fill();
-    });
-  }, {
-    line: mixHex(shade, INK, 0.45),
-    lineWidth: opts.line ?? 1.5,
-    lineAlpha: 0.5,
-    shade: (c) => {
-      // One light across the whole mass.
-      const g = c.createLinearGradient(b.x, b.y, b.x + b.w * 0.5, b.y + b.h);
-      g.addColorStop(0, hexA(lit, 0.5));
-      g.addColorStop(0.42, hexA(lit, 0));
-      g.addColorStop(1, hexA(shade, 0.55));
-      c.fillStyle = g;
-      c.fillRect(b.x, b.y, b.w, b.h);
-      // Then each lobe as a soft bloom and a soft underside — radial, so there
-      // is no edge anywhere and the lobes read as one surface rolling over.
-      for (const l of lobes) {
-        const r = Math.max(l.rx, l.ry);
-        const bloom = c.createRadialGradient(
-          l.x - l.rx * 0.3, l.y - l.ry * 0.42, r * 0.05,
-          l.x - l.rx * 0.3, l.y - l.ry * 0.42, r * 1.05
-        );
-        bloom.addColorStop(0, hexA(lit, 0.34));
-        bloom.addColorStop(1, hexA(lit, 0));
-        c.fillStyle = bloom;
-        c.fillRect(b.x, b.y, b.w, b.h);
-        const under = c.createRadialGradient(
-          l.x + l.rx * 0.2, l.y + l.ry * 0.95, r * 0.1,
-          l.x + l.rx * 0.2, l.y + l.ry * 0.95, r * 0.95
-        );
-        under.addColorStop(0, hexA(shade, 0.4));
-        under.addColorStop(1, hexA(shade, 0));
-        c.fillStyle = under;
-        c.fillRect(b.x, b.y, b.w, b.h);
-      }
-      // Leaf texture, kept faint — at full strength it just reads as dirt.
-      for (const l of lobes) {
-        scribble(c, l.x, l.y, l.rx * 0.8, l.ry * 0.8,
-          Math.round(l.rx * (opts.texture ?? 0.7)), hexA(shade, 0.5), rand, 4);
-      }
-    },
+  // The union as points, so the outline can be *drawn* rather than composited.
+  // A merged mask gives a clean rim; a doodle needs a line with a hand in it,
+  // and that means having the silhouette as a path you can wander along.
+  const outline = unionOutline(lobes, rand, 44);
+
+  // Wash first, nudged off the ink. Colour that doesn't quite line up with the
+  // outline is most of what reads as drawn rather than generated.
+  ctx.save();
+  ctx.translate((rand() - 0.5) * 2.4, (rand() - 0.5) * 2 + 1);
+  tracePath(ctx, outline);
+  ctx.fillStyle = hex;
+  ctx.fill();
+  ctx.restore();
+
+  ctx.save();
+  tracePath(ctx, outline);
+  ctx.clip();
+  const g = ctx.createLinearGradient(b.x, b.y, b.x + b.w * 0.5, b.y + b.h);
+  g.addColorStop(0, hexA(lit, 0.45));
+  g.addColorStop(0.42, hexA(lit, 0));
+  g.addColorStop(1, hexA(shade, 0.4));
+  ctx.fillStyle = g;
+  ctx.fillRect(b.x, b.y, b.w, b.h);
+  // Pen hatching down the shaded flank. The bounds handed to `hatch` set the
+  // stroke length as well as the area — passing the whole form's box drew
+  // full-width bars across every crown and the wood came out looking like
+  // corduroy. Shading wants short marks gathered in the shadow.
+  const sb = { x: b.x + b.w * 0.5, y: b.y + b.h * 0.42, w: b.w * 0.5, h: b.h * 0.58 };
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(sb.x, sb.y, sb.w, sb.h);
+  ctx.clip();
+  hatch(ctx, sb, rand, { angle: -0.85, spacing: 5.5, alpha: 0.11, width: 1, color: shade });
+  ctx.restore();
+  // A few leaf ticks, so the mass isn't bald.
+  for (const l of lobes) {
+    scribble(ctx, l.x, l.y, l.rx * 0.78, l.ry * 0.78,
+      Math.round(l.rx * (opts.texture ?? 0.32)), hexA(shade, 0.32), rand, 3.5);
+  }
+  ctx.restore();
+
+  sketch(ctx, outline, rand, {
+    closed: true, color: mixHex(shade, INK, 0.5),
+    width: opts.line ?? 1.7, wobble: 1.4, alpha: 0.75, passes: 2,
   });
 }
 
@@ -214,7 +207,7 @@ export function drawTree(kind: TreeKind, scale: number, seed: number): Sprite {
         [side * h * 0.01, -h * 0.045],
         [side * h * 0.038, -h * 0.014],
         [side * h * 0.062, 0],
-      ], 5), (t) => h * 0.028 * (1 - t * 0.72), barkHex, rand, false);
+      ], 5), (t) => h * 0.028 * (1 - t * 0.72), mixHex(barkHex, barkShade, 0.45), rand, false);
     }
 
     if (kind === "birch") {
@@ -287,31 +280,35 @@ export function drawRock(seed: number, scale = 1): Sprite {
     // form gets one smooth gradient rather than a jittered ink loop — the
     // wobble belongs in the silhouette, not in the line drawn round it.
     const b = { x: -w * 0.6, y: -h * 0.8, w: w * 1.2, h: h * 0.85 };
-    mergedForm(ctx, b, (c) => {
-      c.fillStyle = "#a9a296";
-      blobPath(c, 0, -h * 0.34, w * 0.44, h * 0.4, 9, (i) =>
-        i % 3 === 0 ? 1.12 : 0.87 + rand() * 0.1);
-      c.fill();
-    }, {
-      line: "#5f5a51", lineWidth: 1.4, lineAlpha: 0.5,
-      shade: (c) => {
-        const g = c.createLinearGradient(b.x, b.y, b.x + b.w * 0.6, b.y + b.h);
-        g.addColorStop(0, hexA("#eeebe1", 0.55));
-        g.addColorStop(0.45, hexA("#eeebe1", 0));
-        g.addColorStop(1, hexA("#6f695f", 0.5));
-        c.fillStyle = g;
-        c.fillRect(b.x, b.y, b.w, b.h);
-        c.strokeStyle = hexA("#5b554c", 0.28);
-        c.lineWidth = 1.1;
-        for (let i = 0; i < 2; i++) {
-          const x0 = -w * 0.25 + rand() * w * 0.4;
-          c.beginPath();
-          c.moveTo(x0, -h * 0.6);
-          c.quadraticCurveTo(x0 + (rand() - 0.5) * 10, -h * 0.35, x0 + (rand() - 0.5) * 16, -h * 0.08);
-          c.stroke();
-        }
-      },
-    });
+    const pts = blobPath(ctx, 0, -h * 0.34, w * 0.44, h * 0.4, 11, (i) =>
+      i % 3 === 0 ? 1.12 : 0.87 + rand() * 0.1);
+    ctx.save();
+    ctx.translate((rand() - 0.5) * 2.2, (rand() - 0.5) * 1.8 + 1);
+    tracePath(ctx, pts);
+    ctx.fillStyle = "#a9a296";
+    ctx.fill();
+    ctx.restore();
+    ctx.save();
+    tracePath(ctx, pts);
+    ctx.clip();
+    const g = ctx.createLinearGradient(b.x, b.y, b.x + b.w * 0.6, b.y + b.h);
+    g.addColorStop(0, hexA("#eeebe1", 0.5));
+    g.addColorStop(0.45, hexA("#eeebe1", 0));
+    g.addColorStop(1, hexA("#6f695f", 0.34));
+    ctx.fillStyle = g;
+    ctx.fillRect(b.x, b.y, b.w, b.h);
+    const sb = { x: b.x + b.w * 0.5, y: b.y + b.h * 0.35, w: b.w * 0.5, h: b.h * 0.65 };
+    ctx.beginPath();
+    ctx.rect(sb.x, sb.y, sb.w, sb.h);
+    ctx.clip();
+    hatch(ctx, sb, rand, { angle: -0.8, spacing: 4.5, alpha: 0.16, width: 1, color: "#5b554c" });
+    ctx.restore();
+    sketch(ctx, pts, rand, { closed: true, width: 1.7, wobble: 1.2, alpha: 0.8, color: "#4f4a42" });
+    for (let i = 0; i < 2; i++) {
+      const x0 = -w * 0.25 + rand() * w * 0.4;
+      sketch(ctx, [[x0, -h * 0.6], [x0 + (rand() - 0.5) * 10, -h * 0.35], [x0 + (rand() - 0.5) * 16, -h * 0.08]],
+        rand, { width: 1.1, wobble: 0.7, alpha: 0.3, passes: 1, color: "#5b554c" });
+    }
   });
 }
 
@@ -390,25 +387,32 @@ export function drawHedge(seed: number): Sprite {
     for (let i = 8; i >= 0; i--) pts.push([-w / 2 + (i / 8) * w + jag(), jag() * 0.4]);
     pts.push([-w / 2 + jag(), -h * 0.5]);
     const b = { x: -w * 0.6, y: -h * 1.1, w: w * 1.2, h: h * 1.2 };
-    mergedForm(ctx, b, (c) => {
-      c.fillStyle = "#5f7f4a";
-      c.beginPath();
-      c.moveTo(pts[0][0], pts[0][1]);
-      for (const p of pts.slice(1)) c.lineTo(p[0], p[1]);
-      c.closePath();
-      c.fill();
-    }, {
-      line: "#3d4d2a", lineWidth: 1.3, lineAlpha: 0.5,
-      shade: (c) => {
-        const g = c.createLinearGradient(b.x, b.y, b.x + b.w * 0.5, b.y + b.h);
-        g.addColorStop(0, hexA("#cfe0a8", 0.5));
-        g.addColorStop(0.45, hexA("#cfe0a8", 0));
-        g.addColorStop(1, hexA("#33421f", 0.52));
-        c.fillStyle = g;
-        c.fillRect(b.x, b.y, b.w, b.h);
-        scribble(c, 0, -h * 0.5, w * 0.46, h * 0.42, 50, hexA("#33421f", 0.45), rand, 4);
-      },
-    });
+    ctx.save();
+    ctx.translate((rand() - 0.5) * 2.2, (rand() - 0.5) * 1.6 + 1);
+    ctx.beginPath();
+    ctx.moveTo(pts[0][0], pts[0][1]);
+    for (const p of pts.slice(1)) ctx.lineTo(p[0], p[1]);
+    ctx.closePath();
+    ctx.fillStyle = "#5f7f4a";
+    ctx.fill();
+    ctx.restore();
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(pts[0][0], pts[0][1]);
+    for (const p of pts.slice(1)) ctx.lineTo(p[0], p[1]);
+    ctx.closePath();
+    ctx.clip();
+    const g = ctx.createLinearGradient(b.x, b.y, b.x + b.w * 0.5, b.y + b.h);
+    g.addColorStop(0, hexA("#cfe0a8", 0.45));
+    g.addColorStop(0.45, hexA("#cfe0a8", 0));
+    g.addColorStop(1, hexA("#33421f", 0.34));
+    ctx.fillStyle = g;
+    ctx.fillRect(b.x, b.y, b.w, b.h);
+    hatch(ctx, { x: b.x + b.w * 0.52, y: b.y + b.h * 0.3, w: b.w * 0.48, h: b.h * 0.7 }, rand,
+      { angle: -0.8, spacing: 5, alpha: 0.12, width: 1, color: "#33421f" });
+    scribble(ctx, 0, -h * 0.5, w * 0.46, h * 0.42, 30, hexA("#33421f", 0.3), rand, 3.5);
+    ctx.restore();
+    sketch(ctx, pts, rand, { closed: true, width: 1.5, wobble: 1, alpha: 0.75, color: "#3d4d2a" });
   });
 }
 
@@ -459,7 +463,7 @@ export function drawBench(seed: number): Sprite {
       ctx.closePath();
       washFill(ctx, "#c39a63", rand, { x: x0 - 4, y: Math.min(y0, y1) - t - 4, w: x1 - x0 + 8, h: Math.abs(y1 - y0) + t * 2 + 8 },
         { pools: 2, shade: "#8a6438" });
-      inkLoop(ctx, pts, rand, { width: 1.1, passes: 1, jitter: 0.4, color: INK });
+      sketch(ctx, pts, rand, { closed: true, width: 1.4, wobble: 0.9, alpha: 0.8, passes: 1, color: INK });
     };
     // Legs first, then seat, then back — painter's order within the sprite.
     ctx.strokeStyle = INK;
@@ -496,7 +500,7 @@ export function drawLamp(seed: number): Sprite {
     for (const p of pts.slice(1)) ctx.lineTo(p[0], p[1]);
     ctx.closePath();
     washFill(ctx, "#4a4f55", rand, { x: -12, y: -h - 20, w: 24, h: 24 }, { pools: 2, shade: "#23262a" });
-    inkLoop(ctx, pts, rand, { width: 1.1, passes: 1, jitter: 0.4, color: INK });
+    sketch(ctx, pts, rand, { closed: true, width: 1.4, wobble: 0.9, alpha: 0.8, passes: 1, color: INK });
     ctx.fillStyle = hexA("#f6e6b4", 0.9);
     ctx.beginPath();
     ctx.ellipse(0, -h - 8, 5, 6, 0, 0, Math.PI * 2);
@@ -516,7 +520,7 @@ export function drawCairn(seed: number): Sprite {
       const rh = 5 + rand() * 3;
       const pts = blobPath(ctx, (rand() - 0.5) * 3, y - rh, rw, rh, 7, () => 0.9 + rand() * 0.2);
       washFill(ctx, "#a49d92", rand, { x: -20, y: y - 16, w: 40, h: 20 }, { pools: 2, shade: "#6f695f" });
-      inkLoop(ctx, pts, rand, { width: 1.1, passes: 1, jitter: 0.4, color: INK });
+      sketch(ctx, pts, rand, { closed: true, width: 1.4, wobble: 0.9, alpha: 0.8, passes: 1, color: INK });
       y -= rh * 1.85;
     }
   });
@@ -535,7 +539,7 @@ export function drawLog(seed: number): Sprite {
     for (const p of pts.slice(1)) ctx.lineTo(p[0], p[1]);
     ctx.closePath();
     washFill(ctx, "#8b7355", rand, { x: -w, y: -20, w: w * 2, h: 26 }, { pools: 3, shade: "#59452c" });
-    inkLoop(ctx, pts, rand, { width: 1.1, passes: 1, jitter: 0.4, color: INK });
+    sketch(ctx, pts, rand, { closed: true, width: 1.4, wobble: 0.9, alpha: 0.8, passes: 1, color: INK });
     // Moss along the top
     ctx.save();
     ctx.strokeStyle = hexA("#4d6b34", 0.9);
@@ -551,6 +555,6 @@ export function drawLog(seed: number): Sprite {
     // End grain
     const end = blobPath(ctx, w / 2, -7, 5, 7, 8, () => 0.95 + rand() * 0.1);
     washFill(ctx, "#a58a63", rand, { x: w / 2 - 8, y: -16, w: 16, h: 18 }, { pools: 1, shade: "#6d5738" });
-    inkLoop(ctx, end, rand, { width: 1.1, passes: 1, jitter: 0.4, color: INK });
+    sketch(ctx, end, rand, { closed: true, width: 1.4, wobble: 0.9, alpha: 0.8, passes: 1, color: INK });
   });
 }

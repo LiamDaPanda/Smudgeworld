@@ -273,6 +273,182 @@ export function scribble(
 
 export interface Bounds { x: number; y: number; w: number; h: number }
 
+// ------------------------------------------------------------- doodle ----
+//
+// A drawn line is never the shape it describes. It wanders off it and comes
+// back, it runs past the corner, and where the artist went over it twice the
+// two strokes don't agree. These three facts are the whole look.
+
+/**
+ * A hand-drawn stroke through `pts`.
+ *
+ * The wander is low-frequency — two slow sine waves along the length of the
+ * stroke, pushed sideways along the normal. Per-point noise would be wrong:
+ * that reads as a shaky line, and a doodle isn't shaky, it's *confident and
+ * inaccurate*. Each pass gets its own wander so the passes separate and
+ * re-converge the way two strokes of a pen do.
+ */
+export function sketch(
+  ctx: CanvasRenderingContext2D,
+  pts: Pt[],
+  rand: () => number,
+  opts: {
+    color?: string; width?: number; passes?: number;
+    wobble?: number; overshoot?: number; closed?: boolean; alpha?: number;
+  } = {}
+) {
+  if (pts.length < 2) return;
+  const color = opts.color ?? "#2f2a24";
+  const w = opts.width ?? 2;
+  const passes = opts.passes ?? 2;
+  const wob = opts.wobble ?? 1.6;
+  const over = opts.overshoot ?? 0;
+  const closed = !!opts.closed;
+  const a0 = opts.alpha ?? 0.92;
+  const n = pts.length;
+
+  ctx.save();
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  for (let p = 0; p < passes; p++) {
+    // On a closed loop the frequencies must be whole numbers or the wander
+    // doesn't meet itself at the seam and the shape gets a notch in it.
+    const r1 = 0.7 + rand() * 1.4, r2 = 2.2 + rand() * 2;
+    const f1 = closed ? Math.max(1, Math.round(r1)) : r1;
+    const f2 = closed ? Math.max(2, Math.round(r2)) : r2;
+    const ph1 = rand() * 7, ph2 = rand() * 7;
+    const amp = wob * (p === 0 ? 1 : 1.6);
+
+    const out: Pt[] = pts.map((pt, i) => {
+      const prev = pts[(i - 1 + n) % n];
+      const next = pts[(i + 1) % n];
+      const dx = next[0] - prev[0], dy = next[1] - prev[1];
+      const l = Math.hypot(dx, dy) || 1;
+      const t = i / n;
+      const d = Math.sin(t * Math.PI * 2 * f1 + ph1) * amp
+        + Math.sin(t * Math.PI * 2 * f2 + ph2) * amp * 0.45;
+      return [pt[0] - (dy / l) * d, pt[1] + (dx / l) * d] as Pt;
+    });
+
+    // Running past the end is what makes a stroke look drawn rather than
+    // fitted; it's the single most recognisable tell.
+    if (!closed && over > 0) {
+      const ext = (from: Pt, to: Pt, k: number): Pt => {
+        const dx = to[0] - from[0], dy = to[1] - from[1];
+        const l = Math.hypot(dx, dy) || 1;
+        return [to[0] + (dx / l) * k, to[1] + (dy / l) * k];
+      };
+      out[out.length - 1] = ext(out[out.length - 2], out[out.length - 1], over * (0.5 + rand()));
+      out[0] = ext(out[1], out[0], over * (0.3 + rand() * 0.8));
+    }
+
+    ctx.strokeStyle = hexA(color, a0 * (p === 0 ? 1 : 0.42));
+    ctx.lineWidth = w * (p === 0 ? 1 : 0.66);
+    ctx.beginPath();
+    ctx.moveTo(out[0][0], out[0][1]);
+    const last = closed ? out.length : out.length - 1;
+    for (let i = 1; i < last; i++) {
+      const a = out[i % out.length];
+      const b = out[(i + 1) % out.length];
+      ctx.quadraticCurveTo(a[0], a[1], (a[0] + b[0]) / 2, (a[1] + b[1]) / 2);
+    }
+    if (closed) ctx.closePath();
+    else ctx.lineTo(out[out.length - 1][0], out[out.length - 1][1]);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+/** Parallel pen strokes for shadow. Call inside a clip. */
+export function hatch(
+  ctx: CanvasRenderingContext2D,
+  b: Bounds,
+  rand: () => number,
+  opts: {
+    color?: string; angle?: number; spacing?: number;
+    width?: number; alpha?: number; jitter?: number; cross?: boolean;
+  } = {}
+) {
+  const sp = opts.spacing ?? 7;
+  const diag = Math.hypot(b.w, b.h);
+  const cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+  ctx.save();
+  ctx.lineCap = "round";
+  ctx.strokeStyle = hexA(opts.color ?? "#2f2a24", opts.alpha ?? 0.2);
+  ctx.lineWidth = opts.width ?? 1.2;
+  for (const ang of opts.cross ? [opts.angle ?? -0.9, (opts.angle ?? -0.9) + 1.5] : [opts.angle ?? -0.9]) {
+    const dx = Math.cos(ang), dy = Math.sin(ang);
+    for (let d = -diag / 2; d <= diag / 2; d += sp) {
+      const j = (rand() - 0.5) * (opts.jitter ?? 1.6);
+      const px = cx - dy * (d + j), py = cy + dx * (d + j);
+      const len = (diag / 2) * (0.8 + rand() * 0.35);
+      const off = (rand() - 0.5) * diag * 0.12;
+      ctx.beginPath();
+      ctx.moveTo(px - dx * len + dx * off, py - dy * len + dy * off);
+      ctx.lineTo(px + dx * len + dx * off, py + dy * len + dy * off);
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
+
+/**
+ * The outline of several overlapping lobes, as points.
+ *
+ * Ray-cast from the weighted centroid and keep the furthest hit — a
+ * star-shaped approximation of the union. It's exact for a convex union and
+ * close enough for a tree crown, and unlike a composited mask it hands back
+ * *points*, which is what a hand-drawn line needs to be drawn along.
+ */
+export function unionOutline(
+  lobes: { x: number; y: number; rx: number; ry: number }[],
+  rand: () => number,
+  n = 46
+): Pt[] {
+  let cx = 0, cy = 0, tw = 0;
+  for (const l of lobes) {
+    const w = l.rx * l.ry;
+    cx += l.x * w; cy += l.y * w; tw += w;
+  }
+  cx /= tw; cy /= tw;
+  const wob = lobes.map(() => ({ n: 2 + Math.floor(rand() * 3), p: rand() * Math.PI * 2 }));
+
+  const out: Pt[] = [];
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2;
+    const ux = Math.cos(a), uy = Math.sin(a);
+    let best = 0;
+    lobes.forEach((l, li) => {
+      const ox = cx - l.x, oy = cy - l.y;
+      const A = (ux * ux) / (l.rx * l.rx) + (uy * uy) / (l.ry * l.ry);
+      const B = 2 * ((ox * ux) / (l.rx * l.rx) + (oy * uy) / (l.ry * l.ry));
+      const C = (ox * ox) / (l.rx * l.rx) + (oy * oy) / (l.ry * l.ry) - 1;
+      const disc = B * B - 4 * A * C;
+      if (disc < 0) return;
+      let t = (-B + Math.sqrt(disc)) / (2 * A);
+      const local = Math.atan2(cy + uy * t - l.y, cx + ux * t - l.x);
+      t *= 1 + Math.sin(local * wob[li].n + wob[li].p) * 0.1;
+      if (t > best) best = t;
+    });
+    out.push([cx + ux * best, cy + uy * best]);
+  }
+  return out;
+}
+
+/** Trace a point list as a path. Doesn't fill or stroke it. */
+export function tracePath(ctx: CanvasRenderingContext2D, pts: Pt[], closed = true) {
+  ctx.beginPath();
+  ctx.moveTo(pts[0][0], pts[0][1]);
+  const n = pts.length;
+  const last = closed ? n : n - 1;
+  for (let i = 1; i < last; i++) {
+    const a = pts[i % n], b = pts[(i + 1) % n];
+    ctx.quadraticCurveTo(a[0], a[1], (a[0] + b[0]) / 2, (a[1] + b[1]) / 2);
+  }
+  if (closed) ctx.closePath();
+  else ctx.lineTo(pts[n - 1][0], pts[n - 1][1]);
+}
+
 // Scratch canvases, reused across every bake so a park's worth of merged forms
 // doesn't allocate a park's worth of canvases.
 const scratch: { c: HTMLCanvasElement; x: CanvasRenderingContext2D }[] = [];

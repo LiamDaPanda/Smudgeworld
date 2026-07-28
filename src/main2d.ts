@@ -17,6 +17,7 @@ import {
   renderLibrary, restoreLibrary, serializeLibrary,
 } from "./library.ts";
 import { isPhotoModeActive, photoState, setAim, startPhotoMode } from "./photo.ts";
+import { subjectIllustration } from "./subjects.ts";
 import {
   calmScale, closeShop, grantGear, initShop, openShop, ownedGear,
   renderShop, restoreGear, spotRadius, type GearItem,
@@ -471,5 +472,6 @@ window.addEventListener("beforeunload", saveGame);
   },
   photoState,
   setAim,
+  plate: (name: string) => subjectIllustration(name),
   skipTime: (n: number) => { time += n; },
 };
