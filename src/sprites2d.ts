@@ -558,3 +558,295 @@ export function drawLog(seed: number): Sprite {
     sketch(ctx, end, rand, { closed: true, width: 1.4, wobble: 0.9, alpha: 0.8, passes: 1, color: INK });
   });
 }
+
+// ------------------------------------------------------- other worlds ----
+
+/** Toadstools, in a little colony. Hollow Wood. */
+export function drawMushroom(seed: number): Sprite {
+  const rand = seeded(seed);
+  return makeSprite(56, 52, 28, 44, (ctx) => {
+    const n = 2 + Math.floor(rand() * 3);
+    for (let i = 0; i < n; i++) {
+      const x = (rand() - 0.5) * 26;
+      const h = 10 + rand() * 14;
+      const r = 6 + rand() * 6;
+      taperedStroke(ctx, smooth([[x, 0], [x + (rand() - 0.5) * 3, -h]], 5),
+        (t) => 4.5 - t * 1.6, "#e6ddc6", rand);
+      const cap = blobPath(ctx, x, -h, r, r * 0.72, 12, (_j, t) => 1 + Math.sin(t * Math.PI * 2 * 2) * 0.06);
+      ctx.save();
+      ctx.translate((rand() - 0.5) * 1.6, 0.8);
+      tracePath(ctx, cap);
+      ctx.fillStyle = rand() < 0.6 ? "#c2503f" : "#b8763c";
+      ctx.fill();
+      ctx.restore();
+      sketch(ctx, cap, rand, { closed: true, width: 1.4, wobble: 0.8, alpha: 0.8, color: "#5c2f24" });
+      for (let k = 0; k < 3; k++) {
+        ctx.fillStyle = hexA("#f2ece0", 0.85);
+        ctx.beginPath();
+        ctx.arc(x + (rand() - 0.5) * r * 1.2, -h - (rand() - 0.2) * r * 0.4, 1.2 + rand() * 1.4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  });
+}
+
+/** The light on the headland. Coast. */
+export function drawLighthouse(seed: number): Sprite {
+  const rand = seeded(seed);
+  const H = 210;
+  return makeSprite(120, H + 20, 60, H, (ctx) => {
+    // Tapered tower, banded.
+    const tower: Pt[] = [
+      [-26, 0], [-17, -H * 0.55], [-13, -H * 0.82],
+      [13, -H * 0.82], [17, -H * 0.55], [26, 0],
+    ];
+    ctx.save();
+    ctx.translate(1, 1);
+    tracePath(ctx, tower);
+    ctx.fillStyle = "#eae4d6";
+    ctx.fill();
+    ctx.restore();
+    ctx.save();
+    tracePath(ctx, tower);
+    ctx.clip();
+    for (let i = 0; i < 3; i++) {
+      ctx.fillStyle = hexA("#c2503f", 0.85);
+      ctx.fillRect(-30, -H * (0.72 - i * 0.24), 60, H * 0.1);
+    }
+    hatch(ctx, { x: 6, y: -H * 0.8, w: 24, h: H * 0.8 }, rand,
+      { angle: -1.2, spacing: 5, alpha: 0.14, width: 1, color: "#6b6355" });
+    ctx.restore();
+    sketch(ctx, tower, rand, { closed: true, width: 1.7, wobble: 1, alpha: 0.85, color: INK });
+
+    // Gallery and lamp room.
+    const gal: Pt[] = [[-19, -H * 0.82], [19, -H * 0.82], [17, -H * 0.87], [-17, -H * 0.87]];
+    sketchFill(ctx, gal, "#5d6a6f", rand);
+    const lamp: Pt[] = [
+      [-12, -H * 0.87], [-11, -H * 0.96], [11, -H * 0.96], [12, -H * 0.87],
+    ];
+    sketchFill(ctx, lamp, "#f4e6a8", rand);
+    const roof: Pt[] = [[-15, -H * 0.96], [0, -H * 1.05], [15, -H * 0.96]];
+    sketchFill(ctx, roof, "#3f4a4e", rand);
+    // The beam, thrown out to sea.
+    const g = ctx.createLinearGradient(0, -H * 0.91, 90, -H * 0.98);
+    g.addColorStop(0, hexA("#f8eec0", 0.5));
+    g.addColorStop(1, hexA("#f8eec0", 0));
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.moveTo(4, -H * 0.91);
+    ctx.lineTo(96, -H * 1.06);
+    ctx.lineTo(96, -H * 0.8);
+    ctx.closePath();
+    ctx.fill();
+  });
+}
+
+/** A chimney stack with pots. Rooftops. */
+export function drawChimney(seed: number): Sprite {
+  const rand = seeded(seed);
+  const h = 70 + rand() * 34;
+  const w = 34 + rand() * 14;
+  return makeSprite(w * 2.4, h + 46, w * 1.2, h + 6, (ctx) => {
+    const stack: Pt[] = [
+      [-w / 2, 6], [-w / 2 - 1, -h * 0.5], [-w / 2 + 1, -h],
+      [w / 2 - 1, -h], [w / 2 + 1, -h * 0.5], [w / 2, 6],
+    ];
+    sketchFill(ctx, stack, "#9a6a52", rand, "#4a2f24");
+    ctx.save();
+    tracePath(ctx, stack);
+    ctx.clip();
+    // Courses of brick.
+    ctx.strokeStyle = hexA("#5c3a2c", 0.28);
+    ctx.lineWidth = 1;
+    for (let y = 0; y > -h; y -= 8) {
+      ctx.beginPath();
+      ctx.moveTo(-w, y + (rand() - 0.5) * 1.5);
+      ctx.lineTo(w, y + (rand() - 0.5) * 1.5);
+      ctx.stroke();
+    }
+    hatch(ctx, { x: 2, y: -h, w: w / 2, h }, rand,
+      { angle: -1.1, spacing: 5, alpha: 0.16, width: 1, color: "#4a2f24" });
+    ctx.restore();
+    // Cap course
+    sketchFill(ctx, [[-w / 2 - 4, -h], [w / 2 + 4, -h], [w / 2 + 3, -h - 7], [-w / 2 - 3, -h - 7]],
+      "#83543f", rand, "#4a2f24");
+    // Pots
+    const pots = 1 + Math.floor(rand() * 3);
+    for (let i = 0; i < pots; i++) {
+      const px = -w / 2 + 8 + i * (w - 12) / Math.max(1, pots - 1 || 1);
+      const ph = 16 + rand() * 12;
+      sketchFill(ctx, [
+        [px - 6, -h - 7], [px - 5, -h - 7 - ph], [px + 5, -h - 7 - ph], [px + 6, -h - 7],
+      ], "#b3612f", rand, "#5b2e16");
+      // Smoke, if it's lit.
+      if (rand() < 0.5) {
+        ctx.save();
+        ctx.strokeStyle = hexA("#d8cfc2", 0.4);
+        ctx.lineWidth = 3;
+        ctx.lineCap = "round";
+        ctx.beginPath();
+        ctx.moveTo(px, -h - 9 - ph);
+        ctx.quadraticCurveTo(px + 8, -h - 26 - ph, px - 4, -h - 40 - ph);
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+  });
+}
+
+/** A rooftop aerial. Rooftops. */
+export function drawAerial(seed: number): Sprite {
+  const rand = seeded(seed);
+  const h = 62 + rand() * 26;
+  return makeSprite(60, h + 16, 30, h + 4, (ctx) => {
+    ctx.save();
+    ctx.strokeStyle = INK;
+    ctx.lineCap = "round";
+    ctx.lineWidth = 2.4;
+    ctx.beginPath();
+    ctx.moveTo(0, 4);
+    ctx.lineTo(1, -h);
+    ctx.stroke();
+    ctx.lineWidth = 1.8;
+    const bars = 4 + Math.floor(rand() * 3);
+    for (let i = 0; i < bars; i++) {
+      const y = -h * (0.42 + (i / bars) * 0.56);
+      const half = 5 + i * 2.6;
+      ctx.beginPath();
+      ctx.moveTo(1 - half, y);
+      ctx.lineTo(1 + half, y);
+      ctx.stroke();
+    }
+    ctx.restore();
+  });
+}
+
+/** A washing line strung between poles. Rooftops. */
+export function drawWashing(seed: number): Sprite {
+  const rand = seeded(seed);
+  const w = 130;
+  return makeSprite(w + 40, 96, (w + 40) / 2, 84, (ctx) => {
+    for (const k of [-1, 1]) {
+      ctx.save();
+      ctx.strokeStyle = INK;
+      ctx.lineWidth = 2.6;
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.moveTo(k * w / 2, 8);
+      ctx.lineTo(k * w / 2, -56);
+      ctx.stroke();
+      ctx.restore();
+    }
+    // The line sags.
+    const sag: Pt[] = [];
+    for (let i = 0; i <= 12; i++) {
+      const t = i / 12;
+      sag.push([-w / 2 + t * w, -56 + Math.sin(t * Math.PI) * 9]);
+    }
+    sketch(ctx, sag, rand, { width: 1.5, wobble: 0.4, alpha: 0.8, passes: 1, color: INK });
+    const COLOURS = ["#e8e2d2", "#7fa3c4", "#c9756a", "#dcc06a", "#9db98a"];
+    const n = 3 + Math.floor(rand() * 3);
+    for (let i = 0; i < n; i++) {
+      const t = 0.12 + (i / n) * 0.76 + rand() * 0.05;
+      const p = sag[Math.round(t * 12)];
+      const cw = 12 + rand() * 10, chh = 18 + rand() * 16;
+      const lean = (rand() - 0.5) * 5;
+      sketchFill(ctx, [
+        [p[0] - cw / 2, p[1]], [p[0] + cw / 2, p[1]],
+        [p[0] + cw / 2 + lean, p[1] + chh], [p[0] - cw / 2 + lean, p[1] + chh],
+      ], COLOURS[Math.floor(rand() * COLOURS.length)], rand, "#4a4438");
+    }
+  });
+}
+
+/** A stacked crate. Coast and rooftops. */
+export function drawCrate(seed: number): Sprite {
+  const rand = seeded(seed);
+  const w = 34 + rand() * 12;
+  return makeSprite(w * 2, w * 1.8, w, w * 1.2, (ctx) => {
+    const box = [
+      [-w / 2, 0], [-w / 2 - 1, -w * 0.8], [w / 2 + 1, -w * 0.82], [w / 2, 0],
+    ] as Pt[];
+    sketchFill(ctx, box, "#a5814f", rand, "#5d4327");
+    ctx.save();
+    ctx.strokeStyle = hexA("#5d4327", 0.4);
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.moveTo(-w / 2, -w * 0.28); ctx.lineTo(w / 2, -w * 0.3);
+    ctx.moveTo(-w / 2, -w * 0.56); ctx.lineTo(w / 2, -w * 0.58);
+    ctx.stroke();
+    ctx.restore();
+  });
+}
+
+/** Shared helper: offset wash under a doodle outline. */
+function sketchFill(
+  ctx: CanvasRenderingContext2D, pts: Pt[], fill: string,
+  rand: () => number, ink = INK
+) {
+  ctx.save();
+  ctx.translate((rand() - 0.5) * 1.8, (rand() - 0.5) * 1.4 + 0.8);
+  tracePath(ctx, pts);
+  ctx.fillStyle = fill;
+  ctx.fill();
+  ctx.restore();
+  sketch(ctx, pts, rand, { closed: true, width: 1.5, wobble: 0.8, alpha: 0.85, color: ink });
+}
+
+/**
+ * A portal: a standing arch with something else showing through it.
+ *
+ * The whole point is that it has to read as a *hole*, not as a monument, so
+ * the inside is a shifting wash with no outline of its own and the arch itself
+ * is thin. Anything with a solid interior reads as a doorway sculpture.
+ */
+export function drawPortal(tint: string, seed: number): Sprite {
+  const rand = seeded(seed);
+  const W = 108, H = 168;
+  return makeSprite(W * 1.5, H + 40, W * 0.75, H * 0.92, (ctx) => {
+    const arch: Pt[] = [
+      [-W / 2, 0], [-W / 2 + 2, -H * 0.42],
+      [-W * 0.34, -H * 0.74], [0, -H * 0.86], [W * 0.34, -H * 0.74],
+      [W / 2 - 2, -H * 0.42], [W / 2, 0],
+    ];
+    // The opening: a wash of wherever it goes, brightest at the middle.
+    ctx.save();
+    tracePath(ctx, arch);
+    ctx.clip();
+    const g = ctx.createRadialGradient(0, -H * 0.42, 4, 0, -H * 0.42, W * 0.72);
+    g.addColorStop(0, hexA(tint, 0.95));
+    g.addColorStop(0.62, hexA(tint, 0.7));
+    g.addColorStop(1, hexA(tint, 0.28));
+    ctx.fillStyle = g;
+    ctx.fillRect(-W, -H * 1.1, W * 2, H * 1.3);
+    // Bands drifting across it.
+    ctx.strokeStyle = hexA("#ffffff", 0.3);
+    ctx.lineWidth = 2;
+    for (let i = 0; i < 9; i++) {
+      const y = -H * (0.06 + rand() * 0.78);
+      ctx.beginPath();
+      ctx.moveTo(-W / 2, y);
+      for (let x = -W / 2; x <= W / 2; x += 12) ctx.lineTo(x, y + Math.sin(x * 0.09 + i) * 3);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    // The frame: two upright stones and a lintel that doesn't quite meet.
+    for (const k of [-1, 1]) {
+      const jamb: Pt[] = [
+        [k * (W / 2 + 9), 4], [k * (W / 2 + 11), -H * 0.5],
+        [k * (W / 2 + 6), -H * 0.8], [k * (W / 2 - 3), -H * 0.78],
+        [k * (W / 2 - 1), -H * 0.44], [k * (W / 2 - 4), 4],
+      ];
+      sketchFill(ctx, jamb, "#8d8a92", rand, "#3f3d44");
+    }
+    sketch(ctx, arch, rand, { closed: true, width: 2, wobble: 1.4, alpha: 0.55, color: "#3f3d44" });
+    // Motes drifting up out of it.
+    for (let i = 0; i < 14; i++) {
+      ctx.fillStyle = hexA(tint, 0.25 + rand() * 0.4);
+      ctx.beginPath();
+      ctx.arc((rand() - 0.5) * W * 0.9, -H * rand() * 1.05, 1 + rand() * 2.4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  });
+}

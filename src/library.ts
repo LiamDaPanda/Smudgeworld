@@ -6,7 +6,7 @@ interface SetDef {
   reward: number; // coin bonus on completion
 }
 
-// Keep in sync with smudges.ts NAMES_COMMON and NAMES_TIMED.
+// Keep in sync with the `subjects` lists in worlds.ts.
 const SETS: SetDef[] = [
   {
     name: "Park Life",
@@ -22,6 +22,21 @@ const SETS: SetDef[] = [
     name: "After Dark",
     subjects: ["Comet Sparrow", "Blink Fox"],
     reward: 400,
+  },
+  {
+    name: "Shoreline",
+    subjects: ["Gull Parliament", "Rockpool Crab", "Seal Loaf", "Lighthouse Keeper"],
+    reward: 380,
+  },
+  {
+    name: "Deep Wood",
+    subjects: ["Mushroom Ring", "Antlered Shape", "Moth Cloud", "Wisp"],
+    reward: 440,
+  },
+  {
+    name: "Chimney Pots",
+    subjects: ["Roof Cat", "Laundry Ghost", "Pigeon Loft", "Weathervane Hawk"],
+    reward: 500,
   },
 ];
 

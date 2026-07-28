@@ -10,12 +10,12 @@ import {
   hazed, hexA, makeSprite, seeded, smooth, washFill, type Pt, type Sprite,
 } from "./art2d.ts";
 import {
-  drawBench, drawBush, drawCairn, drawFern, drawFlower, drawGrassTuft,
-  drawHedge, drawLamp, drawLog, drawReeds, drawRock, drawTree, type TreeKind,
+  drawAerial, drawBench, drawBush, drawCairn, drawChimney, drawCrate, drawFern,
+  drawFlower, drawGrassTuft, drawHedge, drawLamp, drawLighthouse, drawLog,
+  drawMushroom, drawPortal, drawReeds, drawRock, drawTree, drawWashing,
+  type TreeKind,
 } from "./sprites2d.ts";
-
-/** How far the park runs, left to right. */
-export const WORLD_W = 340;
+import { sectionRanges, worldWidth, WORLDS, type Prop, type WorldDef } from "./worlds.ts";
 
 export interface Item {
   x: number;
@@ -45,13 +45,30 @@ export interface Section {
   ground2: string;
 }
 
+export interface Portal {
+  x: number;
+  to: string;
+  /** Name of the world it opens onto, for the prompt. */
+  name: string;
+}
+
 export interface Scene2D {
+  id: string;
+  name: string;
+  blurb: string;
+  width: number;
   layers: Layer[];
   sections: Section[];
   /** Water spans, drawn into the ground band. */
   water: { from: number; to: number }[];
   /** Solids the player stops against, as x-intervals. */
   blockers: { x: number; r: number }[];
+  portals: Portal[];
+  skyTint?: { hex: string; alpha: number };
+  trail: string | null;
+  rise: [string, string];
+  lip: string;
+  texture: "grass" | "sand" | "tile";
   spawn: number;
 }
 
@@ -267,17 +284,21 @@ function drawCloud(seed: number): Sprite {
   });
 }
 
-export function buildScene2D(): Scene2D {
-  const rand = seeded(20260727);
-
-  const sections: Section[] = [
-    { name: "green", from: 0, to: 60, ground: "#9dc06a", ground2: "#7fa354" },
-    { name: "grove", from: 60, to: 130, ground: "#6d8c4c", ground2: "#4a6434" },
-    { name: "wilds", from: 130, to: 190, ground: "#a89b5e", ground2: "#867a46" },
-    { name: "waterside", from: 190, to: 260, ground: "#94bc84", ground2: "#6f9463" },
-    { name: "garden", from: 260, to: WORLD_W, ground: "#8fc079", ground2: "#6b9457" },
-  ];
-  const water = [{ from: 214, to: 240 }];
+/**
+ * Build a world.
+ *
+ * Everything that used to be a literal in here — sections, tree mixes, water,
+ * the one mountain — now comes off a `WorldDef`, because the second world is
+ * only worth walking to if it isn't the first one with the greens swapped.
+ */
+export function buildScene2D(def: WorldDef): Scene2D {
+  const rand = seeded(hashId(def.id));
+  const W = worldWidth(def);
+  const ranges = sectionRanges(def);
+  const sections: Section[] = ranges.map((s) => ({
+    name: s.name, from: s.from, to: s.to, ground: s.ground, ground2: s.ground2,
+  }));
+  const water = def.water;
 
   const sky: Layer = { parallax: 0.1, items: [] };
   const far: Layer = { parallax: 0.2, items: [] };
@@ -299,15 +320,20 @@ export function buildScene2D(): Scene2D {
   // Two tiling hill bands. They carry most of the aerial perspective, so they
   // are painted darker than they read and then washed back toward the haze —
   // washing a pale colour toward a pale colour just gives you paper.
-  const hillFar = hazed(drawHills(3001, 1800, 300, "#7d8f9e", 9), 0.42, HAZE);
-  const hillMid = hazed(drawHills(3002, 1600, 235, "#63795e", 11), 0.24, HAZE);
-  far.items.push({ x: 0, lift: 0, sprite: hillFar, scale: 1, tile: -1 });
-  mid.items.push({ x: 0, lift: 0, sprite: hillMid, scale: 1, tile: -1 });
-  // The massif sits behind the waterside stretch — the one long view in the
-  // park, and the reason the waterfall survived the move to 2D.
-  far.items.push({ x: 226, lift: 0, sprite: hazed(drawMassif(4001), 0.14, HAZE), scale: 1.15 });
+  const haze = def.hills.haze;
+  far.items.push({
+    x: 0, lift: 0, tile: -1, scale: 1,
+    sprite: hazed(drawHills(3001, 1800, def.hills.farH, def.hills.far, 9), 0.42, haze),
+  });
+  mid.items.push({
+    x: 0, lift: 0, tile: -1, scale: 1,
+    sprite: hazed(drawHills(3002, 1600, def.hills.midH, def.hills.mid, 11), 0.24, haze),
+  });
+  if (def.massif !== undefined) {
+    far.items.push({ x: def.massif, lift: 0, sprite: hazed(drawMassif(4001), 0.14, haze), scale: 1.15 });
+  }
 
-  // --- Trees ---
+  // --- Sprite pools, baked once per world ---
   const pool: Record<string, Sprite[]> = {};
   const treeOf = (kind: TreeKind) => {
     if (!pool[kind]) pool[kind] = [0, 1, 2, 3, 4, 5].map((i) => drawTree(kind, 3, 900 + i * 37));
@@ -318,100 +344,128 @@ export function buildScene2D(): Scene2D {
   const ferns = [0, 1, 2].map((i) => drawFern(500 + i * 11));
   const reeds = [0, 1, 2].map((i) => drawReeds(600 + i * 19));
   const hedges = [0, 1, 2].map((i) => drawHedge(700 + i * 23));
-  const logs = [0, 1].map((i) => drawLog(800 + i * 29));
-  const cairns = [0, 1].map((i) => drawCairn(850 + i * 31));
   const tufts = [0, 1, 2, 3].map((i) => drawGrassTuft(1000 + i * 7));
-  const FLOWERS = ["#e0708a", "#c98060", "#dcb85a", "#a37fc9", "#f2efe4"];
-  const flowers = FLOWERS.map((c, i) => drawFlower(c, 1100 + i * 5));
-
-  const mixFor: Record<string, [TreeKind, number][]> = {
-    green: [["mixed", 1]],
-    grove: [["birch", 5], ["mixed", 4], ["conifer", 2]],
-    wilds: [["snag", 5], ["conifer", 3], ["mixed", 2]],
-    waterside: [["willow", 5], ["mixed", 3], ["birch", 2]],
-    garden: [["ornamental", 7], ["mixed", 2]],
+  const propCache: Partial<Record<Prop, Sprite[]>> = {};
+  const propOf = (kind: Prop): Sprite => {
+    let list = propCache[kind];
+    if (!list) {
+      const make = (i: number): Sprite => {
+        switch (kind) {
+          case "log": return drawLog(800 + i * 29);
+          case "cairn": return drawCairn(850 + i * 31);
+          case "bench": return drawBench(1200 + i * 11);
+          case "lamp": return drawLamp(1300 + i * 13);
+          case "mushroom": return drawMushroom(1400 + i * 17);
+          case "chimney": return drawChimney(1500 + i * 19);
+          case "aerial": return drawAerial(1600 + i * 23);
+          case "washing": return drawWashing(1700 + i * 29);
+          case "crate": return drawCrate(1800 + i * 31);
+          case "lighthouse": return drawLighthouse(1900);
+        }
+      };
+      list = propCache[kind] = (kind === "lighthouse" ? [0] : [0, 1, 2]).map(make);
+    }
+    return list[Math.floor(rand() * list.length)];
   };
-  const pickKind = (mix: [TreeKind, number][]): TreeKind => {
-    const total = mix.reduce((s, m) => s + m[1], 0);
+  const flowerCache = new Map<string, Sprite>();
+  const flowerOf = (hex: string) => {
+    let f = flowerCache.get(hex);
+    if (!f) flowerCache.set(hex, (f = drawFlower(hex, 1100 + flowerCache.size * 5)));
+    return f;
+  };
+
+  const pickKind = (mixArr: [TreeKind, number][]): TreeKind => {
+    const total = mixArr.reduce((n, m) => n + m[1], 0);
     let r = rand() * total;
-    for (const [k, w] of mix) { r -= w; if (r <= 0) return k; }
-    return mix[0][0];
+    for (const [k, wgt] of mixArr) { r -= wgt; if (r <= 0) return k; }
+    return mixArr[0][0];
   };
   const inWater = (x: number) => water.some((w) => x > w.from - 2 && x < w.to + 2);
-
+  // Nothing solid may stand where you arrive or where a door is. Placement is
+  // random, and a tree that lands on the spawn point pins the player against
+  // it — the park generated exactly that and walking right moved 0.28 units in
+  // a second instead of five.
+  const keepClear = [def.spawn, ...def.portals.map((p) => p.x)];
+  const crowded = (x: number) => keepClear.some((k) => Math.abs(x - k) < 3);
+  const blocked = (x: number) => inWater(x) || crowded(x);
   const blockers: { x: number; r: number }[] = [];
 
-  for (const sec of sections) {
-    const span = sec.to - sec.from;
-    const density = sec.name === "grove" ? 1.5 : sec.name === "green" ? 0.32 : 0.7;
+  for (const sec of ranges) {
+    const span = sec.span;
+    const density = sec.density ?? 0.7;
 
-    // A band of trees behind the playfield gives the strip depth. It sits
-    // above the ground line, which is the side-scroller's only way of saying
-    // "further back" for something standing on the same floor as you.
-    for (let i = 0; i < span * density * 0.9; i++) {
-      const x = sec.from + rand() * span;
-      if (inWater(x)) continue;
-      back.items.push({
-        x, lift: 0.55 + rand() * 0.55,
-        sprite: hazed(treeOf(pickKind(mixFor[sec.name])), 0.16, HAZE),
-        scale: 0.6 + rand() * 0.2,
-      });
+    if (sec.trees && density > 0) {
+      // A band of trees behind the playfield gives the strip depth. It sits
+      // above the ground line, which is the side-scroller's only way of saying
+      // "further back" for something standing on the same floor as you.
+      for (let i = 0; i < span * density * 0.9; i++) {
+        const x = sec.from + rand() * span;
+        if (inWater(x)) continue;
+        back.items.push({
+          x, lift: 0.55 + rand() * 0.55,
+          sprite: hazed(treeOf(pickKind(sec.trees)), 0.16, haze),
+          scale: 0.6 + rand() * 0.2,
+        });
+      }
+      // The playfield band — these are the ones you walk past.
+      for (let i = 0; i < span * density * 0.4; i++) {
+        const x = sec.from + rand() * span;
+        if (blocked(x)) continue;
+        play.items.push({ x, lift: 0, sprite: treeOf(pickKind(sec.trees)), scale: 0.95 + rand() * 0.3 });
+        blockers.push({ x, r: 0.35 });
+      }
     }
-    // The playfield band — these are the ones you walk past.
-    for (let i = 0; i < span * density * 0.4; i++) {
-      const x = sec.from + rand() * span;
-      if (inWater(x)) continue;
-      play.items.push({
-        x, lift: 0, sprite: treeOf(pickKind(mixFor[sec.name])),
-        scale: 0.95 + rand() * 0.3,
-      });
-      blockers.push({ x, r: 0.35 });
+
+    const under = sec.under ?? "bush";
+    if (under !== "none") {
+      const set = under === "fern" ? ferns : under === "hedge" ? hedges : under === "reed" ? reeds : bushes;
+      for (let i = 0; i < span * 0.5; i++) {
+        const x = sec.from + rand() * span;
+        if (inWater(x)) continue;
+        play.items.push({ x, lift: 0, sprite: set[Math.floor(rand() * set.length)], scale: 0.85 + rand() * 0.35 });
+      }
     }
-    // Undergrowth
-    const under = sec.name === "grove" ? ferns : sec.name === "garden" ? hedges : bushes;
-    for (let i = 0; i < span * 0.5; i++) {
-      const x = sec.from + rand() * span;
-      if (inWater(x)) continue;
-      play.items.push({ x, lift: 0, sprite: under[Math.floor(rand() * under.length)], scale: 0.85 + rand() * 0.35 });
-    }
-    // Rocks, thickest in the wilds
-    const rockN = sec.name === "wilds" ? span * 0.7 : span * 0.16;
-    for (let i = 0; i < rockN; i++) {
+
+    for (let i = 0; i < span * (sec.rocks ?? 0.16); i++) {
       const x = sec.from + rand() * span;
       if (inWater(x)) continue;
       play.items.push({ x, lift: 0, sprite: rocks[Math.floor(rand() * rocks.length)], scale: 0.7 + rand() * 0.6 });
     }
-    if (sec.name === "grove") {
-      for (let i = 0; i < 6; i++) {
-        play.items.push({ x: sec.from + rand() * span, lift: 0, sprite: logs[Math.floor(rand() * 2)], scale: 0.9 });
+
+    for (const kind of sec.props ?? []) {
+      // The lighthouse is a landmark, not scatter — exactly one, near the end.
+      const n = kind === "lighthouse" ? 1 : Math.max(1, Math.round(span * 0.055));
+      for (let i = 0; i < n; i++) {
+        const x = kind === "lighthouse" ? sec.from + span * 0.72 : sec.from + rand() * span;
+        if (blocked(x)) continue;
+        play.items.push({ x, lift: 0, sprite: propOf(kind), scale: 1 });
+        if (kind === "chimney" || kind === "lighthouse") blockers.push({ x, r: 0.5 });
       }
     }
-    if (sec.name === "wilds") {
-      for (let i = 0; i < 5; i++) {
-        play.items.push({ x: sec.from + rand() * span, lift: 0, sprite: cairns[Math.floor(rand() * 2)], scale: 0.9 });
+
+    for (let bed = 0; bed < (sec.flowers ? Math.round(span * 0.16) : 0); bed++) {
+      const bx = sec.from + rand() * span;
+      for (let i = 0; i < 7; i++) {
+        const hex = sec.flowers![Math.floor(rand() * sec.flowers!.length)];
+        play.items.push({
+          x: bx + (rand() - 0.5) * 3, lift: 0, sprite: flowerOf(hex), scale: 0.9 + rand() * 0.3,
+        });
       }
     }
-    if (sec.name === "garden") {
-      for (let bed = 0; bed < 14; bed++) {
-        const bx = sec.from + rand() * span;
-        for (let i = 0; i < 7; i++) {
-          play.items.push({
-            x: bx + (rand() - 0.5) * 2.4, lift: 0,
-            sprite: flowers[Math.floor(rand() * flowers.length)], scale: 0.9 + rand() * 0.3,
-          });
-        }
-      }
+
+    const grass = sec.grass ?? 2;
+    for (let i = 0; i < span * grass; i++) {
+      play.items.push({
+        x: sec.from + rand() * span, lift: 0,
+        sprite: tufts[Math.floor(rand() * 4)], scale: 0.8 + rand() * 0.5,
+      });
     }
-    if (sec.name === "green") {
-      for (let d = 0; d < 5; d++) {
-        const bx = sec.from + rand() * span;
-        for (let i = 0; i < 12; i++) {
-          play.items.push({
-            x: bx + (rand() - 0.5) * 6, lift: 0,
-            sprite: flowers[4], scale: 0.85 + rand() * 0.3,
-          });
-        }
-      }
+    for (let i = 0; i < span * grass * 0.5; i++) {
+      const depth = rand();
+      fore.items.push({
+        x: sec.from + rand() * span, lift: -0.15 - depth * 2.6,
+        sprite: tufts[Math.floor(rand() * 4)], scale: 1.3 + depth * 2.4,
+      });
     }
   }
 
@@ -423,38 +477,33 @@ export function buildScene2D(): Scene2D {
     }
   }
 
-  // Benches and lamps down the walk
-  const bench = drawBench(1200);
-  const lamp = drawLamp(1300);
-  for (let i = 0; i < 7; i++) {
-    const x = 12 + rand() * (WORLD_W - 24);
-    if (inWater(x)) continue;
-    play.items.push({ x, lift: 0, sprite: rand() < 0.5 ? bench : lamp, scale: 1 });
-  }
-
-  // Foreground: grass drawn over everything and moving fastest. It runs down
-  // into the near band rather than sitting on the line, so the bottom of the
-  // frame is somewhere you are rather than an empty slab of colour.
-  for (let i = 0; i < 340; i++) {
-    const depth = rand();
-    fore.items.push({
-      x: rand() * WORLD_W, lift: -0.15 - depth * 2.6,
-      sprite: tufts[Math.floor(rand() * 4)], scale: 1.3 + depth * 2.4,
-    });
-  }
-  // Grass on the playfield itself, including the bank in front of the river.
-  for (let i = 0; i < 700; i++) {
-    play.items.push({
-      x: rand() * WORLD_W, lift: 0,
-      sprite: tufts[Math.floor(rand() * 4)], scale: 0.8 + rand() * 0.5,
-    });
+  // --- Portals ---
+  const portals: Portal[] = def.portals.map((p) => ({
+    x: p.x, to: p.to, name: WORLDS[p.to]?.name ?? p.to,
+  }));
+  for (const p of portals) {
+    // Tinted with a colour from the world it opens onto, so a portal is a
+    // preview as well as a door.
+    const dest = WORLDS[p.to];
+    const tint = dest ? dest.sections[0].ground : "#cfd9de";
+    play.items.push({ x: p.x, lift: 0, sprite: drawPortal(tint, 5100 + p.x), scale: 1 });
   }
 
   return {
+    id: def.id, name: def.name, blurb: def.blurb, width: W,
     layers: [sky, far, mid, back, play, fore],
-    sections, water, blockers,
-    spawn: 26,
+    sections, water, blockers, portals,
+    skyTint: def.skyTint,
+    trail: def.trail === undefined ? "#b09a72" : def.trail,
+    rise: def.ground.rise, lip: def.ground.lip, texture: def.ground.texture,
+    spawn: def.spawn,
   };
+}
+
+function hashId(id: string) {
+  let h = 2166136261;
+  for (let i = 0; i < id.length; i++) h = Math.imul(h ^ id.charCodeAt(i), 16777619);
+  return h >>> 0;
 }
 
 export { HAZE };

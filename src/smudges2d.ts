@@ -6,7 +6,8 @@
 // which is the one thing in the world with no line on it.
 
 import { hexA, seeded } from "./art2d.ts";
-import { WORLD_W, type Section } from "./scene2d.ts";
+import type { Scene2D } from "./scene2d.ts";
+import type { WorldDef } from "./worlds.ts";
 
 export interface Smudge2D {
   id: string;
@@ -37,9 +38,6 @@ export interface Smudge2D {
   __lastShot?: unknown;
 }
 
-const NAMES_PARK = ["Park Cat", "Bench Sitter", "Pigeon Council", "Kite Runner", "Fountain Diver"];
-const NAMES_WATER = ["Heron", "Koi Shadow", "Dragonfly", "Frog Chorus"];
-const NAMES_DARK = ["Comet Sparrow", "Blink Fox"];
 
 /**
  * One shared sprite, drawn large and scaled down — it's a blur either way.
@@ -93,25 +91,29 @@ export function bakeSmudge(): HTMLCanvasElement {
   return c;
 }
 
-export function createSmudges2D(sections: Section[]): Smudge2D[] {
-  const rand = seeded(3141);
+export function createSmudges2D(scene: Scene2D, def: WorldDef): Smudge2D[] {
+  const rand = seeded(3141 + scene.width);
   const out: Smudge2D[] = [];
   let n = 0;
-  const byName = (nm: string) => sections.find((s) => s.name === nm)!;
 
-  const push = (name: string, set: string, kind: "common" | "timed", sec: Section) => {
+  for (const sub of def.subjects) {
+    const sec = scene.sections.find((x) => x.name === sub.section) ?? scene.sections[0];
     // Kept off the section's edges so a subject never straddles a border, and
-    // spread along it so you don't find two in the same stride.
-    const pad = 6;
+    // off the portals, so you don't have to stand in a doorway to shoot.
+    const pad = Math.min(6, (sec.to - sec.from) * 0.2);
     const from = sec.from + pad;
     const to = Math.max(from + 1, sec.to - pad);
-    const x = from + rand() * (to - from);
+    let x = from + rand() * (to - from);
+    for (const p of scene.portals) {
+      if (Math.abs(x - p.x) < 4) x = x + (x < p.x ? -5 : 5);
+    }
+    x = Math.max(2, Math.min(scene.width - 2, x));
     out.push({
-      id: `s${n++}`, name, set, kind,
+      id: `${def.id}-s${n++}`, name: sub.name, set: sub.set, kind: sub.kind,
       homeX: x, homeY: 0, x, y: 0,
       wander: 1.2 + rand() * 1.8,
       seed: rand() * 100,
-      visible: kind === "common",
+      visible: sub.kind === "common",
       captured: false,
       from, to,
       respawnAt: 0,
@@ -120,14 +122,7 @@ export function createSmudges2D(sections: Section[]): Smudge2D[] {
       fleeDir: 1,
       timedWindow: null,
     });
-  };
-
-  // Park Life spreads across the green and the garden; Waterside hugs the
-  // water; After Dark hides in the grove.
-  const parkSecs = [byName("green"), byName("garden"), byName("green"), byName("garden"), byName("green")];
-  NAMES_PARK.forEach((nm, i) => push(nm, "Park Life", "common", parkSecs[i]));
-  for (const nm of NAMES_WATER) push(nm, "Waterside", "common", byName("waterside"));
-  for (const nm of NAMES_DARK) push(nm, "After Dark", "timed", byName("grove"));
+  }
   return out;
 }
 
@@ -139,6 +134,8 @@ const SPOOK_RANGE = 7;
 export interface SmudgeWorld {
   /** Where the player is on the strip. */
   playerX: number;
+  /** How long this world's strip is, for clamping wander and flight. */
+  width: number;
   /** True while the player is sprinting — the thing that actually spooks. */
   sprinting: boolean;
   /** How far a subject tolerates you before it gets twitchy. Gear widens it. */
@@ -149,6 +146,7 @@ export function updateSmudges2D(
   smudges: Smudge2D[], time: number, night: number, held: Smudge2D | null,
   world: SmudgeWorld, dt: number
 ) {
+  const edge = world.width - 2;
   for (const s of smudges) {
     if (s.kind === "timed") {
       // Night only, and even then blinking through a one-second window on a
@@ -202,7 +200,7 @@ export function updateSmudges2D(
     if (s.fleeing > 0) {
       s.fleeing -= dt;
       s.x += s.fleeDir * 7.5 * dt;
-      s.x = Math.max(2, Math.min(WORLD_W - 2, s.x));
+      s.x = Math.max(2, Math.min(edge, s.x));
       s.y = Math.abs(Math.sin(time * 9 + s.seed)) * 0.2;
       if (s.fleeing <= 0) {
         // It settles somewhere new rather than snapping back.
@@ -217,7 +215,7 @@ export function updateSmudges2D(
     const jitter = 1 + s.alert * 1.6;
     const t = time * 0.35 * jitter + s.seed;
     s.x = s.homeX + Math.sin(t) * s.wander + Math.sin(t * 0.43) * s.wander * 0.4;
-    s.x = Math.max(2, Math.min(WORLD_W - 2, s.x));
+    s.x = Math.max(2, Math.min(edge, s.x));
     s.y = Math.sin(t * 1.6) * 0.12;
   }
 }

@@ -40,9 +40,14 @@ export function worldToScreenX(cam: Camera, x: number, parallax: number, vw: num
  * of a few hundred paths per frame.
  */
 const TILE_W = 10 * UNIT;
-let groundTile: HTMLCanvasElement | null = null;
+const groundTiles = new Map<string, HTMLCanvasElement>();
 
-function bakeGroundTile(bandH: number): HTMLCanvasElement {
+/**
+ * What the near ground is made of. This used to be grass full stop, which is
+ * fine until a world's floor is a roof — grass ticks growing out of the tiles
+ * is the single loudest thing wrong with a world built from park parts.
+ */
+function bakeGroundTile(bandH: number, texture: Scene2D["texture"]): HTMLCanvasElement {
   const c = document.createElement("canvas");
   c.width = TILE_W;
   c.height = Math.max(80, Math.ceil(bandH));
@@ -50,15 +55,75 @@ function bakeGroundTile(bandH: number): HTMLCanvasElement {
   const rand = seeded(90210);
   const h = c.height;
 
+  if (texture === "tile") {
+    // Courses of roof tile, staggered, running toward the viewer.
+    ctx.lineCap = "round";
+    let y = h * 0.08;
+    let row = 0;
+    while (y < h) {
+      const step = h * (0.075 + (y / h) * 0.09);
+      const tw = TILE_W / (16 - Math.round((y / h) * 7));
+      ctx.strokeStyle = hexA("#5c3126", 0.22);
+      ctx.lineWidth = 1 + (y / h) * 1.4;
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(TILE_W, y + (rand() - 0.5) * 2);
+      ctx.stroke();
+      ctx.strokeStyle = hexA("#5c3126", 0.13);
+      for (let x = (row % 2) * tw * 0.5; x < TILE_W; x += tw) {
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(x + (rand() - 0.5) * 1.5, y + step);
+        ctx.stroke();
+      }
+      // A highlight along the top of each course.
+      ctx.strokeStyle = hexA("#e0a17e", 0.14);
+      ctx.beginPath();
+      ctx.moveTo(0, y + 1.6);
+      ctx.lineTo(TILE_W, y + 1.6);
+      ctx.stroke();
+      y += step;
+      row++;
+    }
+    return c;
+  }
+
   // Pebbles and grit across the trail.
   for (let i = 0; i < 130; i++) {
     const x = rand() * TILE_W;
     const y = rand() * h * 0.42;
     const r = 0.7 + rand() * 2.1;
-    ctx.fillStyle = hexA("#5d5541", 0.10 + rand() * 0.16);
+    ctx.fillStyle = hexA(texture === "sand" ? "#7a6c4d" : "#5d5541", 0.09 + rand() * 0.14);
     ctx.beginPath();
     ctx.ellipse(x, y, r, r * 0.7, 0, 0, Math.PI * 2);
     ctx.fill();
+  }
+  if (texture === "sand") {
+    // Wind ripples instead of grass, plus sparse marram.
+    ctx.lineCap = "round";
+    for (let i = 0; i < 90; i++) {
+      const y = rand() * h;
+      const x = rand() * TILE_W;
+      ctx.strokeStyle = hexA("#8d7d58", 0.1 + rand() * 0.12);
+      ctx.lineWidth = 1 + rand();
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.quadraticCurveTo(x + 30, y - 3, x + 60 + rand() * 50, y + 1);
+      ctx.stroke();
+    }
+    for (let i = 0; i < 60; i++) {
+      const x = rand() * TILE_W;
+      const t = rand();
+      const y = h * (0.45 + t * 0.55);
+      const len = 6 + t * 18;
+      ctx.strokeStyle = hexA("#8a9257", 0.14 + rand() * 0.2);
+      ctx.lineWidth = 1 + t;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.quadraticCurveTo(x + 3, y - len * 0.6, x + (rand() - 0.5) * 12, y - len);
+      ctx.stroke();
+    }
+    return c;
   }
   // Grass ticks over the near band, longer the closer they are.
   ctx.lineCap = "round";
@@ -102,6 +167,8 @@ export function drawGround(
 
   // The trail you actually walk on: a worn strip hanging off the ground line,
   // with a wobbled lower edge derived from world x so it scrolls with you.
+  // Some worlds have no trail — a roof has no path worn across it.
+  if (scene.trail) {
   const pathBot = (sx: number) => {
     const wx = (sx - vw / 2) / UNIT + cam.x;
     return gy + band * (0.36 + 0.055 * Math.sin(wx * 0.62) + 0.03 * Math.sin(wx * 1.73 + 1.4));
@@ -113,16 +180,17 @@ export function drawGround(
   for (let sx = vw; sx >= 0; sx -= 12) ctx.lineTo(sx, pathBot(sx));
   ctx.closePath();
   const pg = ctx.createLinearGradient(0, gy, 0, gy + band * 0.42);
-  pg.addColorStop(0, hexA("#b09a72", 0.62));
-  pg.addColorStop(1, hexA("#c8b691", 0.30));
+  pg.addColorStop(0, hexA(scene.trail, 0.62));
+  pg.addColorStop(1, hexA(scene.trail, 0.26));
   ctx.fillStyle = pg;
   ctx.fill();
   ctx.restore();
+  }
 
   // Scatter.
-  if (!groundTile || groundTile.height !== Math.max(80, Math.ceil(band))) {
-    groundTile = bakeGroundTile(band);
-  }
+  const key = `${scene.texture}:${Math.max(80, Math.ceil(band))}`;
+  let groundTile = groundTiles.get(key);
+  if (!groundTile) groundTiles.set(key, (groundTile = bakeGroundTile(band, scene.texture)));
   ctx.save();
   ctx.globalAlpha = 0.85;
   const off = ((-cam.x * UNIT) % TILE_W + TILE_W) % TILE_W;
@@ -133,15 +201,15 @@ export function drawGround(
 
   // A darker lip right at the line, so the ground doesn't meet the sky flat.
   const lip = ctx.createLinearGradient(0, gy - 2, 0, gy + band * 0.1);
-  lip.addColorStop(0, hexA("#43512f", 0.34));
-  lip.addColorStop(1, hexA("#43512f", 0));
+  lip.addColorStop(0, hexA(scene.lip, 0.34));
+  lip.addColorStop(1, hexA(scene.lip, 0));
   ctx.fillStyle = lip;
   ctx.fillRect(0, gy - 2, vw, band * 0.1);
 
   // And a shade at the very bottom, so the frame closes.
   const foot = ctx.createLinearGradient(0, vh - band * 0.34, 0, vh);
-  foot.addColorStop(0, hexA("#2f3a24", 0));
-  foot.addColorStop(1, hexA("#2f3a24", 0.3));
+  foot.addColorStop(0, hexA(scene.lip, 0));
+  foot.addColorStop(1, hexA(scene.lip, 0.34));
   ctx.fillStyle = foot;
   ctx.fillRect(0, vh - band * 0.34, vw, band * 0.34);
 }
@@ -285,11 +353,11 @@ export function drawBackRise(
     ctx.lineTo(b, gy + 4);
     ctx.closePath();
     const g = ctx.createLinearGradient(0, gy - UNIT * 1.5, 0, gy);
-    g.addColorStop(0, hexA("#7d966a", 0.95));
-    g.addColorStop(1, hexA("#5f7a4c", 0.95));
+    g.addColorStop(0, hexA(scene.rise[0], 0.95));
+    g.addColorStop(1, hexA(scene.rise[1], 0.95));
     ctx.fillStyle = g;
     ctx.fill();
-    ctx.strokeStyle = hexA("#3c4b30", 0.4);
+    ctx.strokeStyle = hexA(scene.lip, 0.4);
     ctx.lineWidth = 1.8;
     ctx.beginPath();
     ctx.moveTo(a, top(a));

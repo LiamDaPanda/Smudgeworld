@@ -327,6 +327,34 @@
       body:not(.touch) #prox-prompt .touch-only { display: none; }
       body.touch #prox-prompt .desktop-only { display: none; }
 
+      /* Portal prompt: same language as the proximity prompt, sat above it so
+         the two can be on screen together without either moving. */
+      #portal-prompt {
+        position: fixed; left: 50%; bottom: calc(140px + var(--safe-b));
+        transform: translateX(-50%);
+        background: rgba(28, 26, 44, 0.92);
+        color: #e8e4f4;
+        border: 1px solid #b9b2e0;
+        padding: 10px 18px 10px 14px;
+        font-family: Georgia, serif; font-size: 14px; letter-spacing: 0.05em;
+        display: none; align-items: center; gap: 10px;
+        z-index: 8;
+      }
+      #portal-prompt.show { display: flex; }
+      #portal-prompt strong { color: #fff; font-weight: normal; }
+      #portal-prompt .portal-icon { font-size: 17px; opacity: 0.8; }
+      #portal-prompt .key {
+        background: #e8e4f4; color: #2b2b2b; border-radius: 3px;
+        padding: 2px 8px; font-size: 12px; font-family: monospace; letter-spacing: 0;
+      }
+      #portal-prompt button {
+        background: #e8e4f4; color: #2b2b2b; border: none;
+        padding: 6px 14px; font-family: Georgia, serif; font-size: 13px;
+        cursor: pointer; letter-spacing: 0.05em;
+      }
+      body:not(.touch) #portal-prompt .touch-only { display: none; }
+      body.touch #portal-prompt .desktop-only { display: none; }
+
       /* Photo mode overlay */
       #photo-overlay {
         position: fixed; inset: 0; z-index: 25;
@@ -783,7 +811,7 @@
     <div id="hud">
       <div class="left">
         <div>Smudgeworld</div>
-        <div class="hint" id="hint">A and D to walk · Shift to run, but running scares subjects off · E or Space to photograph</div>
+        <div class="hint" id="hint">A and D to walk · Shift to run, but running scares subjects off · E to photograph · F to step through a portal</div>
       </div>
       <div class="right">
         <div class="hud-chip" id="coin">
@@ -799,6 +827,10 @@
           <span>Lv <span id="level-val">1</span></span>
         </div>
         <div id="xp-bar"><div class="fill" id="xp-fill"></div></div>
+        <div class="hud-chip" id="world-chip">
+          <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1.2 C3.4 1.2 1.6 3.2 1.6 6 C1.6 8.8 3.4 10.8 6 10.8 C8.6 10.8 10.4 8.8 10.4 6 C10.4 3.2 8.6 1.2 6 1.2 Z M6 1.2 C4.7 2.6 4.3 4.2 4.3 6 C4.3 7.8 4.7 9.4 6 10.8 M1.8 6 H10.2" fill="none" stroke="currentColor" stroke-width="0.8"/></svg>
+          <span id="world-val">The Park</span>
+        </div>
         <div class="hud-chip" id="clock-chip">
           <svg viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="4.6" fill="none" stroke="currentColor" stroke-width="0.9"/><path d="M6 3.2 V6 L8 7.2" fill="none" stroke="currentColor" stroke-width="0.9" stroke-linecap="round"/></svg>
           <span id="clock-val">08:38 · Day</span>
@@ -817,6 +849,12 @@
       <span id="prox-name">A blurry figure</span>
       <span class="desktop-only"><span class="key">E</span> photograph</span>
       <span class="touch-only">camera button to photograph</span>
+    </div>
+    <div id="portal-prompt">
+      <span class="portal-icon" aria-hidden="true">◎</span>
+      <span>A way through to <strong id="portal-name">somewhere</strong></span>
+      <span class="desktop-only"><span class="key">F</span> step through</span>
+      <button class="touch-only" id="portal-go" type="button">Step through</button>
     </div>
     <div id="library"></div>
     <div id="inventory-modal" role="dialog" aria-modal="true" aria-label="Collection">

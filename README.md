@@ -20,9 +20,25 @@ stamped with a clarity percentage and the moment it was caught.
 The world stays smudged forever. The only clear likeness of any of these
 creatures is the one in your library.
 
-Snapshots slot into sets — **Park Life**, **Waterside**, **After Dark**.
-Completing one pays coins, which buy camera gear, which makes the next plate
-sharper.
+Snapshots slot into sets. Completing one pays coins, which buy camera gear,
+which makes the next plate sharper.
+
+### Four worlds
+
+The park has a portal at its far end. Stand in one and press `F`.
+
+| World | | Set |
+|---|---|---|
+| **The Park** | benches, a grove, a river, a mountain | Park Life · Waterside · After Dark |
+| **The Long Shore** | dunes, sea, cliffs, a lighthouse | Shoreline |
+| **Hollow Wood** | dense, misty, full of toadstools | Deep Wood |
+| **The Rooftops** | tiles, chimneys, washing lines, dusk | Chimney Pots |
+
+Twenty-three subjects across six sets. Each world is its own strip with its
+own palette, sky wash, ground texture, flora and props — a world is data
+(`worlds.ts`), not a copy of the park with the greens swapped. They're built
+the first time you walk in and then kept, so a portal is instant on the way
+back and everything you spooked is where you left it.
 
 ### Taking the shot
 
@@ -58,6 +74,7 @@ keeps your best of each.
 | Walk | `A` `D` or arrows | Joystick, bottom left |
 | Run | `Shift` | Push the joystick to its rim |
 | Photograph | `E`, `Space`, or left-click | The camera button, bottom right |
+| Step through a portal | `F` | The portal prompt |
 | Pan the lens | `A` `D` `W` `S` or arrows, in photo mode | Drag the frame |
 | Collection | `I` | Collection button |
 | Pause | `Esc` | — |
@@ -141,7 +158,8 @@ src/
   art2d.ts      Drawing primitives: blobs, washes, ink, tapered strokes.
   sprites2d.ts  Every object in the park, baked to an offscreen canvas.
   player2d.ts   The photographer in profile: two-bone limbs, six walk frames.
-  scene2d.ts    Park layout — sections, parallax layers, hills, the massif.
+  worlds.ts     The four worlds, as data: sections, flora, props, portals.
+  scene2d.ts    Builds a world — parallax layers, hills, the massif, portals.
   render2d.ts   Parallax, ground band, river, back rise, shadows.
   smudges2d.ts  Subjects: placement, wander, nerves, respawn, night gating.
   main2d.ts     Game loop and glue.
