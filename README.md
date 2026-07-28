@@ -13,10 +13,9 @@ Installs to a phone home screen and runs offline.
 
 ## The loop
 
-Walk the park. When you get close to a smudge, raise the camera. A focus ring
-pulses; fire at its tightest for the sharpest plate. The shot develops into a
-**snapshot** — a collectible card stamped with a clarity percentage and the
-moment it was caught.
+Walk the park until you find a smudge, get close without frightening it, and
+raise the camera. The shot develops into a **snapshot** — a collectible card
+stamped with a clarity percentage and the moment it was caught.
 
 The world stays smudged forever. The only clear likeness of any of these
 creatures is the one in your library.
@@ -25,18 +24,47 @@ Snapshots slot into sets — **Park Life**, **Waterside**, **After Dark**.
 Completing one pays coins, which buy camera gear, which makes the next plate
 sharper.
 
+### Taking the shot
+
+Three things decide a plate, and the viewfinder shows all three live:
+
+- **Focus** — a ring pulses in and out, closing exactly onto the centre
+  reticle. Fire when the two circles meet. The subject in the frame is blurred
+  to whatever the ring is currently worth, so tightening it is something you
+  watch happen rather than a number you're told about.
+- **Framing** — the subject drifts around the frame, and the lens only resolves
+  what's under the reticle. Pan to keep it there: `A` `D` `W` `S`, the arrow
+  keys, or drag the frame.
+- **Distance** — how close you walked in before you raised the camera. A
+  subject filling the frame beats a speck across the lawn.
+
+The result card breaks the grade into those three, so a bad plate tells you
+which part to do differently.
+
+### Not spooking it
+
+Subjects are skittish. Sprinting near one frightens it and it bolts; walking
+in is safe until you're almost on top of it, and standing still settles it
+again. That's the whole reason the movement has both a walk and a run.
+
+A photographed subject wanders off and comes back a while later somewhere else
+in its stretch of the park, so a better plate is always chaseable — the library
+keeps your best of each.
+
 ## Controls
 
 | | Desktop | Touch |
 |---|---|---|
-| Walk | `W` `A` `S` `D` | Joystick, bottom left |
-| Sprint | `Shift` | Push the joystick to its rim |
+| Walk | `A` `D` or arrows | Joystick, bottom left |
+| Run | `Shift` | Push the joystick to its rim |
 | Photograph | `E`, `Space`, or left-click | The camera button, bottom right |
+| Pan the lens | `A` `D` `W` `S` or arrows, in photo mode | Drag the frame |
 | Collection | `I` | Collection button |
 | Pause | `Esc` | — |
 
 You don't have to stop walking to raise the camera; it works mid-stride, and
-whatever you're photographing holds still until you're done.
+whatever you're photographing holds still on the strip until you're done —
+though it still drifts inside the frame.
 
 ## Running it
 
@@ -105,13 +133,13 @@ src/
   player2d.ts   The photographer in profile: two-bone limbs, six walk frames.
   scene2d.ts    Park layout — sections, parallax layers, hills, the massif.
   render2d.ts   Parallax, ground band, river, back rise, shadows.
-  smudges2d.ts  Subjects: placement, wander, night gating.
+  smudges2d.ts  Subjects: placement, wander, nerves, respawn, night gating.
   main2d.ts     Game loop and glue.
   daynight2d.ts Time of day, as a colour wash.
-  photo.ts      Photo mode: focus ring, shutter, develop, result card.
+  photo.ts      Photo mode: focus, framing, distance, develop, result card.
   subjects.ts   Canvas-drawn illustration per subject.
   library.ts    Snapshots, sets, best-take bookkeeping.
-  gear.ts       The five camera upgrades and what they change.
+  gear.ts       The seven camera upgrades and what they change.
   input.ts      Keyboard, mouse, touch joystick.
   audio.ts      WebAudio synthesis for everything you hear.
 public/         Icons, web manifest, service worker.

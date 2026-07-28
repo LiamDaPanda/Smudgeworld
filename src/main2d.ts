@@ -13,12 +13,12 @@ import {
   playSuccess, playUiTick, toggleMute, updateAudio, updateFootsteps,
 } from "./audio.ts";
 import {
-  addSnapshot, closeInventory, getSetSummary, openInventory,
+  addSnapshot, bestClarityOf, closeInventory, getSetSummary, openInventory,
   renderLibrary, restoreLibrary, serializeLibrary,
 } from "./library.ts";
-import { isPhotoModeActive, startPhotoMode } from "./photo.ts";
+import { isPhotoModeActive, photoState, setAim, startPhotoMode } from "./photo.ts";
 import {
-  closeShop, grantGear, initShop, openShop, ownedGear,
+  calmScale, closeShop, grantGear, initShop, openShop, ownedGear,
   renderShop, restoreGear, spotRadius, type GearItem,
 } from "./gear.ts";
 import { bakePlayer, WALK_FRAMES, type Facing } from "./player2d.ts";
@@ -27,7 +27,9 @@ import {
   UNIT, worldToScreenX, type Camera,
 } from "./render2d.ts";
 import { buildScene2D, WORLD_W } from "./scene2d.ts";
-import { bakeSmudge, createSmudges2D, updateSmudges2D, type Smudge2D } from "./smudges2d.ts";
+import {
+  bakeSmudge, createSmudges2D, markCaptured, updateSmudges2D, type Smudge2D,
+} from "./smudges2d.ts";
 import type { Snapshot } from "./types.ts";
 
 const canvas = document.getElementById("game") as HTMLCanvasElement;
@@ -59,6 +61,7 @@ let coins = 0, snapshotCount = 0, xp = 0, time = 0;
 let gameActive = false, paused = false;
 let nearest: Smudge2D | null = null;
 let lastChimed: Smudge2D | null = null;
+const fleeingNow = new Set<string>();
 
 const SAVE_KEY = "smudgeworld-save-v1";
 
@@ -159,7 +162,14 @@ function updateProximity() {
     if (best) {
       prompt?.classList.add("show");
       const n = document.getElementById("prox-name");
-      if (n) n.textContent = "A blurry figure";
+      // Once it's in the library you recognise it on sight, and knowing your
+      // own best score is what turns a second sighting into a reason to stop.
+      const bestClarity = bestClarityOf(best.name);
+      if (n) {
+        n.textContent = bestClarity === null
+          ? "A blurry figure"
+          : `${best.name} · best ${Math.round(bestClarity * 100)}%`;
+      }
       if (best !== lastChimed) { lastChimed = best; playNearby(); }
     } else prompt?.classList.remove("show");
   }
@@ -167,13 +177,44 @@ function updateProximity() {
   document.body.classList.toggle("near-smudge", !!best);
 }
 
+/**
+ * Say it once, the first time it happens. A subject that bolts for reasons the
+ * player can't see just reads as the game being flaky; told once that running
+ * is what did it, the walk/sprint choice becomes a decision instead of a
+ * speed setting.
+ */
+function watchForBolts() {
+  for (const s of smudges) {
+    const running = s.fleeing > 0;
+    if (running && !fleeingNow.has(s.id)) {
+      fleeingNow.add(s.id);
+      if (Math.abs(s.x - player.x) < 12) tipOnce("spook", "It bolted — walk, don't run, when you're closing in");
+    } else if (!running) {
+      fleeingNow.delete(s.id);
+    }
+  }
+}
+
+function tipOnce(key: string, text: string) {
+  try {
+    const k = `smudgeworld-tip-${key}`;
+    if (localStorage.getItem(k)) return;
+    localStorage.setItem(k, "1");
+  } catch { /* storage blocked — show it every time rather than never */ }
+  showToast(text, 4200);
+}
+
 function launchPhoto() {
   if (!gameActive || isPhotoModeActive() || !nearest) return;
   const s = nearest;
   document.getElementById("prox-prompt")?.classList.remove("show");
-  startPhotoMode(s, (shot: Snapshot | null) => {
+  const context = {
+    distance: () => Math.abs(s.x - player.x),
+    best: bestClarityOf(s.name),
+  };
+  startPhotoMode(s, context, (shot: Snapshot | null) => {
     if (!shot) return;
-    s.captured = true;
+    markCaptured(s, time);
     const result = addSnapshot(shot);
     snapshotCount += 1;
     const gain = Math.round(shot.clarity * 10) + (result.completedSet ? result.reward : 0);
@@ -190,6 +231,9 @@ function launchPhoto() {
     } else if (result.improvedBest) {
       showToast(`Better shot of ${shot.subjectName} · ${Math.round(shot.clarity * 100)}%`);
       playSuccess();
+    }
+    if (result.newSubject) {
+      tipOnce("respawn", "Subjects wander back after a while — a better plate always replaces your best");
     }
     if (levelFromXp(xp) > prev) {
       showToast(`Photographer level ${levelFromXp(xp)}!`, 3000);
@@ -364,7 +408,12 @@ function frame(now: number) {
     advanceDay(dt);
     const night = nightAmount();
     const gait = gameActive && !isPhotoModeActive() ? updatePlayer(dt) : 0;
-    updateSmudges2D(smudges, time, night, isPhotoModeActive() ? nearest : null);
+    updateSmudges2D(smudges, time, night, isPhotoModeActive() ? nearest : null, {
+      playerX: player.x,
+      sprinting: input.sprint && gait > 0.4,
+      calm: calmScale(),
+    }, dt);
+    watchForBolts();
 
     // The camera leads in the direction of travel, so you see more of where
     // you're going than where you've been, and it clamps at the map's ends.
@@ -377,6 +426,9 @@ function frame(now: number) {
       updateProximity();
       if (input.consumePhoto()) launchPhoto();
     } else if (isPhotoModeActive()) {
+      // Drain it: Space fires the shutter *and* sets the world's photo flag, so
+      // without this the camera re-opens the instant the result card closes.
+      input.consumePhoto();
       document.getElementById("prox-prompt")?.classList.remove("show");
     }
 
@@ -410,4 +462,14 @@ window.addEventListener("beforeunload", saveGame);
   },
   subjectPos: () => nearest && { x: nearest.x },
   addCoins: (n: number) => { coins += n; updateHud(); renderShop(); },
+  smudgeState: (i: number) => {
+    const s = smudges[i];
+    return s && {
+      x: s.x, alert: s.alert, fleeing: s.fleeing,
+      captured: s.captured, respawnAt: s.respawnAt, now: time,
+    };
+  },
+  photoState,
+  setAim,
+  skipTime: (n: number) => { time += n; },
 };

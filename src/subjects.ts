@@ -2,18 +2,21 @@
 // Rendered inside the photo-mode viewfinder as the "revealed" creature.
 
 const cache = new Map<string, HTMLCanvasElement>();
+const cutouts = new Map<string, HTMLCanvasElement>();
 
 interface DrawCtx {
   ctx: CanvasRenderingContext2D;
   s: number; // canvas size (square)
 }
 
-function base(size = 320): DrawCtx {
+function base(size = 320, card = true): DrawCtx {
   const c = document.createElement("canvas");
   c.width = c.height = size;
   const ctx = c.getContext("2d")!;
-  ctx.fillStyle = "#e2dcc9";
-  ctx.fillRect(0, 0, size, size);
+  if (card) {
+    ctx.fillStyle = "#e2dcc9";
+    ctx.fillRect(0, 0, size, size);
+  }
   ctx.strokeStyle = "#1a1a1a";
   ctx.lineWidth = 2;
   ctx.lineCap = "round";
@@ -479,9 +482,8 @@ const drawers: Record<string, (d: DrawCtx) => void> = {
   "Blink Fox": drawBlinkFox,
 };
 
-export function subjectIllustration(name: string): HTMLCanvasElement {
-  if (cache.has(name)) return cache.get(name)!;
-  const d = base();
+function render(name: string, card: boolean): HTMLCanvasElement {
+  const d = base(320, card);
   const draw = drawers[name];
   if (draw) draw(d);
   else {
@@ -492,6 +494,23 @@ export function subjectIllustration(name: string): HTMLCanvasElement {
     d.ctx.fill();
     d.ctx.stroke();
   }
-  cache.set(name, d.ctx.canvas);
   return d.ctx.canvas;
+}
+
+/** The developed plate: subject on its paper card. */
+export function subjectIllustration(name: string): HTMLCanvasElement {
+  let c = cache.get(name);
+  if (!c) cache.set(name, (c = render(name, true)));
+  return c;
+}
+
+/**
+ * The same subject with no card behind it, for the viewfinder — through the
+ * glass you're looking at a thing in the park, and a cream rectangle floating
+ * in the frame reads as a photograph of a photograph.
+ */
+export function subjectCutout(name: string): HTMLCanvasElement {
+  let c = cutouts.get(name);
+  if (!c) cutouts.set(name, (c = render(name, false)));
+  return c;
 }
