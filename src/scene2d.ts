@@ -6,7 +6,9 @@
 // side-scroller makes, and in exchange it gets back the one thing the
 // top-down view had no room for — a sky, and something on the horizon.
 
-import { hazed, hexA, inkLoop, makeSprite, seeded, washFill, type Pt, type Sprite } from "./art2d.ts";
+import {
+  hazed, hexA, makeSprite, seeded, smooth, washFill, type Pt, type Sprite,
+} from "./art2d.ts";
 import {
   drawBench, drawBush, drawCairn, drawFern, drawFlower, drawGrassTuft,
   drawHedge, drawLamp, drawLog, drawReeds, drawRock, drawTree, type TreeKind,
@@ -83,48 +85,86 @@ function drawHills(seed: number, width: number, height: number, hex: string, det
 /** The massif and its waterfall — the one long view in the park. */
 function drawMassif(seed: number): Sprite {
   const rand = seeded(seed);
-  const W = 900, H = 560;
+  // The canvas is much wider than the range it holds. A peak's half-width can
+  // reach 520px and its centre can sit 430px out, so at a canvas the width of
+  // the range itself the outer peaks were sliced off by the sprite edge and
+  // left a hard vertical cut down the sky.
+  const W = 1500, H = 560, SPREAD = 860;
   return makeSprite(W, H + 8, W / 2, H, (ctx) => {
     // Peaks, back to front, each paler than the one behind is nearer.
     const bands = [
-      { n: 5, h: 0.98, hex: "#c3c8d0", spread: 1.0 },
-      { n: 4, h: 0.8, hex: "#aab0ba", spread: 0.82 },
-      { n: 3, h: 0.62, hex: "#918f8c", spread: 0.6 },
+      { n: 5, h: 0.98, hex: "#a8b0bd", spread: 1.0 },
+      { n: 4, h: 0.8, hex: "#8d95a3", spread: 0.82 },
+      { n: 3, h: 0.62, hex: "#79787c", spread: 0.6 },
     ];
     for (const b of bands) {
       for (let i = 0; i < b.n; i++) {
-        const cx = (i / (b.n - 1) - 0.5) * W * b.spread + (rand() - 0.5) * 90;
-        const ph = H * b.h * (0.62 + rand() * 0.5);
+        const cx = (i / (b.n - 1) - 0.5) * SPREAD * b.spread + (rand() - 0.5) * 90;
+        // Kept under the canvas height on purpose: at `0.62 + rand() * 0.5`
+        // the tallest peaks came to 614px in a 560px canvas and were sliced
+        // off square at the top, so the range's highest summit was a mesa.
+        const ph = Math.min(H * 0.94, H * b.h * (0.62 + rand() * 0.42));
         const pw = ph * (0.5 + rand() * 0.35);
-        const pts: Pt[] = [
-          [cx - pw, 0],
-          [cx - pw * 0.42, -ph * 0.5],
-          [cx - pw * 0.1, -ph * 0.92],
-          [cx + pw * 0.06, -ph],
-          [cx + pw * 0.34, -ph * 0.66],
-          [cx + pw * 0.7, -ph * 0.3],
-          [cx + pw, 0],
+        // Each flank is smoothed on its own and the two are joined at the
+        // summit, so the long slopes roll but the top still comes to a point.
+        // Smoothing the ridge as one run rounds the summit off with it and
+        // leaves a range of bullets.
+        const top: Pt = [cx + pw * 0.04, -ph];
+        const ridge: Pt[] = [
+          ...smooth([
+            [cx - pw, 0], [cx - pw * 0.66, -ph * 0.26],
+            [cx - pw * 0.44, -ph * 0.54], [cx - pw * 0.14, -ph * 0.9], top,
+          ], 18),
+          ...smooth([
+            top, [cx + pw * 0.2, -ph * 0.84], [cx + pw * 0.46, -ph * 0.5],
+            [cx + pw * 0.72, -ph * 0.24], [cx + pw, 0],
+          ], 18).slice(1),
         ];
-        ctx.beginPath();
-        ctx.moveTo(pts[0][0], pts[0][1]);
-        for (const p of pts.slice(1)) ctx.lineTo(p[0], p[1]);
-        ctx.closePath();
+        const face = (pts: Pt[]) => {
+          ctx.beginPath();
+          ctx.moveTo(pts[0][0], pts[0][1]);
+          for (const p of pts.slice(1)) ctx.lineTo(p[0], p[1]);
+          ctx.closePath();
+        };
+        face([...ridge, [cx + pw, 4], [cx - pw, 4]]);
         washFill(ctx, b.hex, rand, { x: cx - pw - 4, y: -ph - 4, w: pw * 2 + 8, h: ph + 8 },
           { pools: 5, shade: "#7b7f88", light: "#f4f6f8" });
-        inkLoop(ctx, pts, rand, { width: 1.4, passes: 2, jitter: 1.4, color: "#59606a" });
-        // Snow on the tallest
+
+        // Everything below is clipped to the peak, so the snowline and the
+        // shaded face follow the silhouette exactly instead of being separate
+        // shapes floating on top of it.
+        ctx.save();
+        face([...ridge, [cx + pw, 4], [cx - pw, 4]]);
+        ctx.clip();
+        // Sun from the left: the whole right flank falls into shade.
+        const lightG = ctx.createLinearGradient(cx - pw, 0, cx + pw, 0);
+        lightG.addColorStop(0, hexA("#f6f8fa", 0.22));
+        lightG.addColorStop(0.42, hexA("#f6f8fa", 0));
+        lightG.addColorStop(1, hexA("#4d525d", 0.45));
+        ctx.fillStyle = lightG;
+        ctx.fillRect(cx - pw - 4, -ph - 8, pw * 2 + 8, ph + 16);
         if (ph > H * b.h * 0.95) {
-          const cap: Pt[] = [
-            [cx - pw * 0.2, -ph * 0.78], [cx + pw * 0.02, -ph],
-            [cx + pw * 0.2, -ph * 0.72], [cx + pw * 0.02, -ph * 0.66],
-          ];
-          ctx.beginPath();
-          ctx.moveTo(cap[0][0], cap[0][1]);
-          for (const p of cap.slice(1)) ctx.lineTo(p[0], p[1]);
-          ctx.closePath();
-          ctx.fillStyle = hexA("#f2f5f8", 0.92);
-          ctx.fill();
+          const snow = ctx.createLinearGradient(0, -ph, 0, -ph * 0.7);
+          snow.addColorStop(0, hexA("#f4f7fa", 0.92));
+          snow.addColorStop(0.55, hexA("#f4f7fa", 0.7));
+          snow.addColorStop(1, hexA("#f4f7fa", 0));
+          ctx.fillStyle = snow;
+          ctx.fillRect(cx - pw - 4, -ph - 8, pw * 2 + 8, ph * 0.32);
         }
+        ctx.restore();
+
+        // One soft line along the ridge only — a closed loop put a hard edge
+        // along the bottom of every peak, where it should vanish behind the
+        // peaks in front of it.
+        ctx.save();
+        ctx.strokeStyle = hexA("#5f6670", 0.4);
+        ctx.lineWidth = 1.2;
+        ctx.lineJoin = "round";
+        ctx.beginPath();
+        ctx.moveTo(ridge[0][0], ridge[0][1]);
+        for (const p of ridge.slice(1)) ctx.lineTo(p[0], p[1]);
+        ctx.stroke();
+        ctx.restore();
       }
     }
 
