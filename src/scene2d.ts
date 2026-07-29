@@ -61,8 +61,6 @@ export interface Scene2D {
   sections: Section[];
   /** Water spans, drawn into the ground band. */
   water: { from: number; to: number }[];
-  /** Solids the player stops against, as x-intervals. */
-  blockers: { x: number; r: number }[];
   portals: Portal[];
   skyTint?: { hex: string; alpha: number };
   trail: string | null;
@@ -386,9 +384,11 @@ export function buildScene2D(def: WorldDef): Scene2D {
   // it — the park generated exactly that and walking right moved 0.28 units in
   // a second instead of five.
   const keepClear = [def.spawn, ...def.portals.map((p) => p.x)];
-  const crowded = (x: number) => keepClear.some((k) => Math.abs(x - k) < 3);
+  // 7 units, not 3: you arrive four units to the side of a door, and a tree
+  // standing on the arrival point pins you against it exactly the way one on
+  // the spawn point did.
+  const crowded = (x: number) => keepClear.some((k) => Math.abs(x - k) < 7);
   const blocked = (x: number) => inWater(x) || crowded(x);
-  const blockers: { x: number; r: number }[] = [];
 
   for (const sec of ranges) {
     const span = sec.span;
@@ -412,7 +412,6 @@ export function buildScene2D(def: WorldDef): Scene2D {
         const x = sec.from + rand() * span;
         if (blocked(x)) continue;
         play.items.push({ x, lift: 0, sprite: treeOf(pickKind(sec.trees)), scale: 0.95 + rand() * 0.3 });
-        blockers.push({ x, r: 0.35 });
       }
     }
 
@@ -439,7 +438,6 @@ export function buildScene2D(def: WorldDef): Scene2D {
         const x = kind === "lighthouse" ? sec.from + span * 0.72 : sec.from + rand() * span;
         if (blocked(x)) continue;
         play.items.push({ x, lift: 0, sprite: propOf(kind), scale: 1 });
-        if (kind === "chimney" || kind === "lighthouse") blockers.push({ x, r: 0.5 });
       }
     }
 
@@ -492,7 +490,7 @@ export function buildScene2D(def: WorldDef): Scene2D {
   return {
     id: def.id, name: def.name, blurb: def.blurb, width: W,
     layers: [sky, far, mid, back, play, fore],
-    sections, water, blockers, portals,
+    sections, water, portals,
     skyTint: def.skyTint,
     trail: def.trail === undefined ? "#b09a72" : def.trail,
     rise: def.ground.rise, lip: def.ground.lip, texture: def.ground.texture,
