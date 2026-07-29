@@ -594,7 +594,10 @@ export function drawMushroom(seed: number): Sprite {
 export function drawLighthouse(seed: number): Sprite {
   const rand = seeded(seed);
   const H = 210;
-  return makeSprite(120, H + 20, 60, H, (ctx) => {
+  // Room above for the roof (it reaches -H * 1.05) and to the right for the
+  // beam (it runs to x = 96). At 120x230 anchored at (60, H) both were sliced
+  // off square by the canvas edge.
+  return makeSprite(150, H + 46, 42, H + 34, (ctx) => {
     // Tapered tower, banded.
     const tower: Pt[] = [
       [-26, 0], [-17, -H * 0.55], [-13, -H * 0.82],
@@ -646,7 +649,9 @@ export function drawChimney(seed: number): Sprite {
   const rand = seeded(seed);
   const h = 70 + rand() * 34;
   const w = 34 + rand() * 14;
-  return makeSprite(w * 2.4, h + 46, w * 1.2, h + 6, (ctx) => {
+  // The smoke plume reaches roughly -h - 70; anchoring at h + 6 cut it off at
+  // the top of the canvas, so every lit chimney had its smoke chopped square.
+  return makeSprite(w * 2.4, h + 96, w * 1.2, h + 82, (ctx) => {
     const stack: Pt[] = [
       [-w / 2, 6], [-w / 2 - 1, -h * 0.5], [-w / 2 + 1, -h],
       [w / 2 - 1, -h], [w / 2 + 1, -h * 0.5], [w / 2, 6],
@@ -845,7 +850,7 @@ export function drawPortal(tint: string, seed: number): Sprite {
     for (let i = 0; i < 14; i++) {
       ctx.fillStyle = hexA(tint, 0.25 + rand() * 0.4);
       ctx.beginPath();
-      ctx.arc((rand() - 0.5) * W * 0.9, -H * rand() * 1.05, 1 + rand() * 2.4, 0, Math.PI * 2);
+      ctx.arc((rand() - 0.5) * W * 0.9, -H * rand() * 0.88, 1 + rand() * 2.4, 0, Math.PI * 2);
       ctx.fill();
     }
   });

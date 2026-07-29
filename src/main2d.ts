@@ -19,6 +19,10 @@ import {
 import { isPhotoModeActive, photoState, setAim, startPhotoMode } from "./photo.ts";
 import { subjectIllustration } from "./subjects.ts";
 import {
+  drawAerial, drawChimney, drawCrate, drawLighthouse, drawMushroom, drawPortal,
+  drawWashing,
+} from "./sprites2d.ts";
+import {
   calmScale, closeShop, grantGear, initShop, openShop, ownedGear,
   renderShop, restoreGear, spotRadius, type GearItem,
 } from "./gear.ts";
@@ -94,7 +98,14 @@ function updateHud() {
   if (coin) coin.textContent = String(coins);
   if (found) found.textContent = String(snapshotCount);
   const summary = getSetSummary();
-  const target = summary.find((x) => !x.complete) ?? summary[summary.length - 1];
+  // Prefer a set you can actually work on from where you're standing. The bar
+  // is meant to say "here's what to hunt next", and with six sets across four
+  // worlds the first-incomplete-overall rule pointed at Park Life while you
+  // were on a rooftop.
+  const here = new Set((WORLDS[scene.id]?.subjects ?? []).map((x) => x.set));
+  const target = summary.find((x) => !x.complete && here.has(x.name))
+    ?? summary.find((x) => !x.complete)
+    ?? summary[summary.length - 1];
   if (target) {
     const n = document.getElementById("pb-name");
     const c = document.getElementById("pb-count");
@@ -251,6 +262,11 @@ function updatePortals(dt: number) {
 
 function travel(to: string) {
   if (portalCooldown > 0) return;
+  // Read where we came from *before* reassigning, which is the whole bug this
+  // used to have: `current` was already the destination by the time the
+  // arrival door was looked up, so the lookup could never match and every trip
+  // dumped you at the left-hand end of the world however you got there.
+  const fromId = scene.id;
   const next = world(to);
   current = next;
   scene = next.scene;
@@ -262,11 +278,17 @@ function travel(to: string) {
   document.getElementById("portal-prompt")?.classList.remove("show");
   nearPortal = null;
 
-  // Arrive beside the door back, not on top of it — otherwise the first press
-  // of F on the far side sends you straight home again.
-  const back = scene.portals.find((p) => p.to === current.scene.id) ?? scene.portals[0];
-  const home = scene.portals.find((p) => p.x < scene.width / 2) ?? back;
-  player.x = home ? Math.min(scene.width - 3, home.x + 4) : scene.spawn;
+  // Come out of the door that leads back where you came from, standing beside
+  // it rather than in it — otherwise the first press of F on the far side
+  // sends you straight home again. Step toward the middle of the world, so
+  // arriving at a door near an edge doesn't put you against the wall.
+  const door = scene.portals.find((p) => p.to === fromId) ?? scene.portals[0];
+  if (door) {
+    const inward = door.x < scene.width / 2 ? 1 : -1;
+    player.x = Math.max(2, Math.min(scene.width - 2, door.x + inward * 4));
+  } else {
+    player.x = scene.spawn;
+  }
   player.vx = 0;
   cam.x = player.x;
   portalCooldown = 0.8;
@@ -274,6 +296,7 @@ function travel(to: string) {
   playSuccess();
   showToast(`${scene.name} — ${scene.blurb}`, 3400);
   paintWorldChip();
+  updateHud();
   saveGame();
 }
 
@@ -403,14 +426,15 @@ function updatePlayer(dt: number) {
   player.vx += (target - player.vx) * k;
   if (Math.abs(player.vx) < 0.03) player.vx = 0;
 
-  const next = player.x + player.vx * dt;
-  // Trunks stop you. Only block when crossing into one, so you can never end
-  // up stuck inside a blocker if something else nudges you.
-  let blocked = false;
-  for (const b of scene.blockers) {
-    if (Math.abs(next - b.x) < b.r && Math.abs(player.x - b.x) >= b.r) { blocked = true; break; }
-  }
-  if (!blocked) player.x = next;
+  // Scenery does not stop you.
+  //
+  // A side-scroller has exactly one walkable line, so a "blocker" on it isn't
+  // an obstacle you steer around — it's a wall across the whole world. Every
+  // playfield tree was one, which made the park impassable 6 units in out of
+  // 340. It never showed up because every test drove the player with `warp`.
+  // The player draws in front of the playfield layer, so walking past a trunk
+  // reads correctly with no collision at all.
+  player.x += player.vx * dt;
   player.x = Math.max(2, Math.min(scene.width - 2, player.x));
 
   if (ix !== 0) player.facing = ix > 0 ? "right" : "left";
@@ -577,8 +601,18 @@ window.addEventListener("beforeunload", saveGame);
   photoState,
   setAim,
   plate: (name: string) => subjectIllustration(name),
+  propSprites: () => ({
+    lighthouse: drawLighthouse(1900).canvas,
+    chimney: drawChimney(1500).canvas,
+    aerial: drawAerial(1600).canvas,
+    washing: drawWashing(1700).canvas,
+    crate: drawCrate(1800).canvas,
+    mushroom: drawMushroom(1400).canvas,
+    portal: drawPortal("#9dc06a", 5100).canvas,
+  }),
   skipTime: (n: number) => { time += n; },
   worldId: () => scene.id,
+  worldWidth: () => scene.width,
   worldList: () => Object.keys(WORLDS),
   goWorld: (id: string) => { portalCooldown = 0; travel(id); },
   portals: () => scene.portals.map((p) => ({ x: p.x, to: p.to })),
